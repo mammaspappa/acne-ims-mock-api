@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Russian Roulette</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    color: #33ff33;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  #game {
+    max-width: 600px;
+    width: 100%;
+    border: 1px solid #33ff33;
+    padding: 30px;
+    box-shadow: 0 0 20px rgba(51, 255, 51, 0.1);
+  }
+  h1 {
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 1.5em;
+    text-transform: uppercase;
+    letter-spacing: 4px;
+  }
+  .separator {
+    border: none;
+    border-top: 1px solid #1a5c1a;
+    margin: 15px 0;
+  }
+  #terminal {
+    min-height: 300px;
+    margin: 15px 0;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    font-size: 0.95em;
+  }
+  .dead { color: #ff3333; }
+  .safe { color: #33ff33; }
+  .info { color: #888; }
+  .bold { font-weight: bold; }
+  .chamber-display {
+    font-size: 1.1em;
+    letter-spacing: 2px;
+    margin: 10px 0;
+  }
+  #prompt {
+    display: flex;
+    align-items: center;
+    border-top: 1px solid #1a5c1a;
+    padding-top: 15px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  #prompt span { color: #33ff33; }
+  button {
+    background: none;
+    color: #33ff33;
+    border: 1px solid #33ff33;
+    padding: 8px 18px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.15s;
+  }
+  button:hover {
+    background: #33ff33;
+    color: #0a0a0a;
+  }
+  button:disabled {
+    opacity: 0.3;
+    cursor: default;
+    background: none;
+    color: #33ff33;
+  }
+  #stats {
+    text-align: right;
+    color: #888;
+    font-size: 0.8em;
+    margin-bottom: 10px;
+  }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1>Russian Roulette</h1>
+  <div id="stats"></div>
+  <hr class="separator">
+  <div id="terminal"></div>
+  <div id="prompt">
+    <span>&gt;</span>
+    <button id="btn-spin" onclick="spin()">Spin Cylinder</button>
+    <button id="btn-pull" onclick="pull()" disabled>Pull Trigger</button>
+    <button id="btn-new" onclick="newGame()" style="display:none">New Game</button>
+  </div>
+</div>
+
+<script>
+const CHAMBERS = 6;
+let bullet, position, alive, attempts, survived, deaths, round;
+
+function init() {
+  survived = 0;
+  deaths = 0;
+  newGame();
+}
+
+function newGame() {
+  bullet = Math.floor(Math.random() * CHAMBERS);
+  position = 0;
+  alive = true;
+  attempts = 0;
+  round = 0;
+
+  const terminal = document.getElementById('terminal');
+  terminal.innerHTML = '';
+
+  log('A revolver lies on the table.', 'info');
+  log('It has ' + CHAMBERS + ' chambers. One holds a bullet.', 'info');
+  log('');
+  drawCylinder();
+  log('');
+  log('Spin the cylinder when ready.', 'bold');
+
+  document.getElementById('btn-spin').disabled = false;
+  document.getElementById('btn-pull').disabled = true;
+  document.getElementById('btn-new').style.display = 'none';
+  updateStats();
+}
+
+function spin() {
+  position = Math.floor(Math.random() * CHAMBERS);
+  round++;
+
+  log('');
+  log('--- Round ' + round + ' ---', 'bold');
+  log('You spin the cylinder...');
+
+  setTimeout(() => {
+    log('*click* *click* *click*... it stops.', 'info');
+    log('');
+    drawCylinder();
+    log('');
+    log('The cylinder is set. Pull the trigger?', 'bold');
+    document.getElementById('btn-spin').disabled = false;
+    document.getElementById('btn-pull').disabled = false;
+  }, 600);
+
+  document.getElementById('btn-spin').disabled = true;
+  document.getElementById('btn-pull').disabled = true;
+}
+
+function pull() {
+  attempts++;
+  document.getElementById('btn-spin').disabled = true;
+  document.getElementById('btn-pull').disabled = true;
+
+  log('');
+  log('You raise the revolver...');
+
+  setTimeout(() => {
+    if (position === bullet) {
+      log('');
+      log('  ____  ___    _   _  ____ _ ', 'dead');
+      log(' | __ )|  _ \\ | \\ | |/ ___| |', 'dead');
+      log(' |  _ \\| |_| ||  \\| | |  _| |', 'dead');
+      log(' | |_) |  _ < | |\\  | |_| |_|', 'dead');
+      log(' |____/|_| \\_\\|_| \\_|\\____(_)', 'dead');
+      log('');
+      log('BANG! The bullet fires.', 'dead bold');
+      log('You are dead.', 'dead');
+      log('');
+      log('You survived ' + (attempts - 1) + ' pull(s) this game.', 'info');
+      deaths++;
+      alive = false;
+      endGame();
+    } else {
+      log('*click*', 'safe bold');
+      log('');
+      log('Empty chamber. You survive.', 'safe');
+      survived++;
+      position = (position + 1) % CHAMBERS;
+      drawCylinder();
+      log('');
+      log('Spin again or pull the trigger on the next chamber.', 'info');
+      document.getElementById('btn-spin').disabled = false;
+      document.getElementById('btn-pull').disabled = false;
+      updateStats();
+    }
+  }, 800);
+}
+
+function endGame() {
+  document.getElementById('btn-spin').disabled = true;
+  document.getElementById('btn-pull').disabled = true;
+  document.getElementById('btn-new').style.display = 'inline-block';
+  updateStats();
+}
+
+function drawCylinder() {
+  let chambers = '';
+  for (let i = 0; i < CHAMBERS; i++) {
+    if (i === position) {
+      chambers += '[?]';
+    } else {
+      chambers += '[ ]';
+    }
+    if (i < CHAMBERS - 1) chambers += ' ';
+  }
+  log('  Cylinder: ' + chambers, 'chamber-display');
+  log('             ' + ' '.repeat(position * 4) + ' ^', 'info');
+}
+
+function log(text, cls) {
+  const terminal = document.getElementById('terminal');
+  const line = document.createElement('div');
+  if (cls) cls.split(' ').forEach(c => line.classList.add(c));
+  line.textContent = text;
+  terminal.appendChild(line);
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
+function updateStats() {
+  document.getElementById('stats').textContent =
+    'Survived: ' + survived + ' | Deaths: ' + deaths +
+    ' | Survival rate: ' + (survived + deaths > 0
+      ? Math.round(survived / (survived + deaths) * 100) + '%'
+      : '--');
+}
+
+init();
+</script>
+</body>
+</html>

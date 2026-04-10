@@ -1,0 +1,14 @@
+[
+  { "name": "Black", "code": "BLK", "hex": "#000000" },
+  { "name": "Off-White", "code": "OWH", "hex": "#FAF9F6" },
+  { "name": "Oatmeal Melange", "code": "OAT", "hex": "#D4C5A9" },
+  { "name": "Dusty Pink", "code": "DPK", "hex": "#D4A5A5" },
+  { "name": "Powder Blue", "code": "PBL", "hex": "#B0C4DE" },
+  { "name": "Slate Grey", "code": "SGR", "hex": "#708090" },
+  { "name": "Burgundy", "code": "BUR", "hex": "#722F37" },
+  { "name": "Camel", "code": "CML", "hex": "#C19A6B" },
+  { "name": "Navy", "code": "NVY", "hex": "#1B2A4A" },
+  { "name": "Hunter Green", "code": "HGR", "hex": "#355E3B" },
+  { "name": "Rust", "code": "RST", "hex": "#B7410E" },
+  { "name": "Ecru", "code": "ECR", "hex": "#C2B280" }
+]

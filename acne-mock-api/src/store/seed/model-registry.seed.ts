@@ -1,0 +1,73 @@
+import type { Store } from '../Store.js';
+import { generateId } from '../../utils/id.js';
+import { daysAgo } from '../../utils/date.js';
+
+export function seedModelRegistry(store: Store): void {
+  store.modelRegistry = [
+    {
+      id: generateId(),
+      modelName: 'demand_forecast',
+      version: '1.2.0',
+      status: 'ACTIVE',
+      metrics: { mae: 2.8, rmse: 4.1, mape: 0.18, r2: 0.89, mse: 16.8 },
+      hyperparameters: { lstmUnits: [128, 64], dropout: 0.2, learningRate: 0.001, batchSize: 64, epochs: 150, lookbackWeeks: 52, optimizer: 'adam' },
+      trainingDataRange: { from: daysAgo(730).toISOString(), to: daysAgo(7).toISOString(), recordCount: 85000, skuCount: 200, locationCount: 10 },
+      artifactPath: 's3://acne-ml-models/demand_forecast/v1.2.0/model.onnx',
+      trainedAt: daysAgo(5).toISOString(),
+      activatedAt: daysAgo(4).toISOString(),
+      createdAt: daysAgo(5).toISOString(),
+    },
+    {
+      id: generateId(),
+      modelName: 'demand_forecast',
+      version: '1.1.0',
+      status: 'RETIRED',
+      metrics: { mae: 3.4, rmse: 5.0, mape: 0.22, r2: 0.85, mse: 25.0 },
+      hyperparameters: { lstmUnits: [64, 32], dropout: 0.2, learningRate: 0.001, batchSize: 32, epochs: 100, lookbackWeeks: 26, optimizer: 'adam' },
+      trainingDataRange: { from: daysAgo(900).toISOString(), to: daysAgo(60).toISOString(), recordCount: 62000, skuCount: 150, locationCount: 8 },
+      artifactPath: 's3://acne-ml-models/demand_forecast/v1.1.0/model.onnx',
+      trainedAt: daysAgo(65).toISOString(),
+      activatedAt: daysAgo(64).toISOString(),
+      createdAt: daysAgo(65).toISOString(),
+    },
+    {
+      id: generateId(),
+      modelName: 'match_scorer',
+      version: '1.0.0',
+      status: 'ACTIVE',
+      metrics: { accuracy: 0.89, precision: 0.91, recall: 0.87, f1Score: 0.89, auc: 0.94, logloss: 0.28 },
+      hyperparameters: { layers: [64, 32, 16], activation: 'relu', dropout: 0.3, learningRate: 0.0005, batchSize: 128, epochs: 200, ruleBlend: 0.7 },
+      trainingDataRange: { from: daysAgo(365).toISOString(), to: daysAgo(14).toISOString(), recordCount: 12000, confirmedMatches: 8500, rejectedMatches: 3500 },
+      artifactPath: 's3://acne-ml-models/match_scorer/v1.0.0/model.onnx',
+      trainedAt: daysAgo(10).toISOString(),
+      activatedAt: daysAgo(9).toISOString(),
+      createdAt: daysAgo(10).toISOString(),
+    },
+    {
+      id: generateId(),
+      modelName: 'anomaly_detector',
+      version: '1.1.0',
+      status: 'ACTIVE',
+      metrics: { precision: 0.84, recall: 0.92, f1Score: 0.88, falsePositiveRate: 0.08, avgDetectionLatencyHours: 2.3 },
+      hyperparameters: { encoderLayers: [64, 32, 8], decoderLayers: [32, 64], reconstructionThreshold: 0.15, anomalyTypes: 5, trainingEpochs: 300 },
+      trainingDataRange: { from: daysAgo(730).toISOString(), to: daysAgo(7).toISOString(), recordCount: 45000, anomalousRecords: 1200 },
+      artifactPath: 's3://acne-ml-models/anomaly_detector/v1.1.0/model.onnx',
+      trainedAt: daysAgo(7).toISOString(),
+      activatedAt: daysAgo(6).toISOString(),
+      createdAt: daysAgo(7).toISOString(),
+    },
+    {
+      id: generateId(),
+      modelName: 'allocation_optimizer',
+      version: '0.9.0',
+      status: 'TRAINING',
+      metrics: { avgReward: 7.8, maxReward: 12.3, episodesCompleted: 25000, convergenceEpoch: null, validationReward: 6.9 },
+      hyperparameters: { algorithm: 'DQN', hiddenLayers: [128, 64], epsilon: 0.15, gamma: 0.99, replayBufferSize: 50000, targetUpdateFreq: 1000 },
+      trainingDataRange: { from: daysAgo(730).toISOString(), to: daysAgo(1).toISOString(), recordCount: 30000, simulatedEpisodes: 25000 },
+      artifactPath: 's3://acne-ml-models/allocation_optimizer/v0.9.0/checkpoint/',
+      trainedAt: daysAgo(1).toISOString(),
+      activatedAt: null,
+      createdAt: daysAgo(14).toISOString(),
+    },
+  ];
+}
