@@ -371,6 +371,19 @@ export const SCENARIO_CATALOG: ScenarioCatalogEntry[] = [
     defaultSeverity: 'HIGH',
     configurableParams: ['productId', 'category', 'severity', 'durationMinutes'],
   },
+
+  // ── Internal Fraud ────────────────────────────────
+  {
+    id: 'EMPLOYEE_FRAUD_RING',
+    name: 'Employee Fraud Ring',
+    description: 'A group of staff at a store are running a coordinated fraud scheme — sweethearting (skipping scans, swapping barcodes), fake returns to personal cards, cash skimming, inventory theft, gift card fraud, time theft, and manager code abuse. The fraud is subtle at first but escalates, causing inventory shrinkage, margin erosion, and anomalous POS patterns.',
+    category: 'OPERATIONAL',
+    affects: 'POS, inventory, finance, security, HR, loss prevention',
+    exampleTrigger: 'Three associates at the Paris Froissart store collude to steal merchandise and process fake returns over several weeks',
+    defaultDurationMinutes: 43200, // 1 month
+    defaultSeverity: 'HIGH',
+    configurableParams: ['locationId', 'severity', 'durationMinutes'],
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -420,6 +433,7 @@ export function activateScenario(scenarioId: string, params: Record<string, unkn
     SEASON_LAUNCH: makeSeasonLaunch,
     SIZING_DEFECT: makeSizingDefect,
     SIZE_CURVE_ERROR: makeSizeCurveError,
+    EMPLOYEE_FRAUD_RING: makeEmployeeFraudRing,
   };
 
   const maker = makers[scenarioId];
@@ -1993,6 +2007,174 @@ function makeSizeCurveError(base: Omit<ActiveScenarioInternal, 'generateTick'>, 
         events.push(sEvt('Supply Chain', 'EMERGENCY_REORDER',
           `Emergency reorder: ${product.name} sizes S/M/L — expedite from ${supplier?.name || '?'}. Air freight recommended`,
           product.id, { productName: product.name, supplierName: supplier?.name }, ctx));
+      }
+
+      this.eventsGenerated += events.length;
+      return events;
+    },
+  };
+}
+
+
+// ─── 22. EMPLOYEE FRAUD RING ─────────────────────────────
+// Staff conspiracy at a store — sweethearting, fake returns,
+// cash skimming, inventory theft, gift card fraud, time theft,
+// and manager code abuse.
+
+function makeEmployeeFraudRing(base: Omit<ActiveScenarioInternal, 'generateTick'>, params: Record<string, unknown>): ActiveScenarioInternal {
+  const allStores = store.locations.filter(l => l.type === 'STORE');
+  const targetStore = params.locationId
+    ? (allStores.find(s => s.id === params.locationId) || faker.helpers.arrayElement(allStores))
+    : faker.helpers.arrayElement(allStores);
+  const mult = sevMult(base.severity);
+
+  // The conspirators
+  const ringSize = 2 + Math.floor(Math.random() * 3);
+  const conspirators = Array.from({ length: ringSize }, () => faker.person.firstName());
+  const ringleader = conspirators[0];
+
+  base.name = `Employee Fraud Ring: ${targetStore.name}`;
+  base.context = {
+    locationId: targetStore.id, locationName: targetStore.name,
+    conspirators, ringleader, ringSize,
+    country: targetStore.country, city: targetStore.city,
+  };
+  const ctx = { id: base.instanceId, name: base.name };
+
+  return {
+    ...base,
+    generateTick() {
+      const events: SimEvent[] = [];
+      const perp = faker.helpers.arrayElement(conspirators);
+
+      // ── Sweethearting: skip scans, swap barcodes ──
+      if (chance(35 * mult)) {
+        const product = store.products[Math.floor(Math.random() * store.products.length)];
+        const skus = store.skus.filter(s => s.productId === product.id);
+        const sku = skus.length > 0 ? skus[Math.floor(Math.random() * skus.length)] : null;
+        if (sku) {
+          const method = faker.helpers.arrayElement([
+            `item not scanned — friend left with ${product.name} (${sku.colour})`,
+            `scanned cheaper item (SEK 1,200) instead of ${product.name} (SEK ${sku.retailPrice.toLocaleString()})`,
+            `applied fake employee discount 50% on ${product.name} for accomplice`,
+            `voided ${product.name} mid-transaction after bagging — customer walked out with item`,
+          ]);
+          // Actually deplete stock without recording proper sale
+          depleteStock(sku.id, targetStore.id, 1);
+          events.push(sEvt('Teamwork POS', 'SWEETHEART_TRANSACTION',
+            `[Anomalous] ${targetStore.name}: ${perp} — ${method}`,
+            targetStore.id, { locationName: targetStore.name, associate: perp, productName: product.name, method: 'sweethearting' }, ctx));
+        }
+      }
+
+      // ── Return fraud: fake returns to personal cards/gift cards ──
+      if (chance(25 * mult)) {
+        const product = store.products[Math.floor(Math.random() * store.products.length)];
+        const amount = 1000 + Math.floor(Math.random() * 15000);
+        const method = faker.helpers.arrayElement([
+          `fake return processed — no original receipt, refund SEK ${amount.toLocaleString()} to personal debit card`,
+          `return reversal: ${product.name} — item never actually returned, SEK ${amount.toLocaleString()} refunded to gift card`,
+          `fictitious receipt created for ${product.name} — refund SEK ${amount.toLocaleString()} processed to accomplice's card`,
+          `duplicate return: same receipt used twice — SEK ${amount.toLocaleString()} extra refund issued`,
+        ]);
+        events.push(sEvt('Teamwork POS', 'FRAUDULENT_RETURN',
+          `[Anomalous] ${targetStore.name}: ${perp} — ${method}`,
+          targetStore.id, { locationName: targetStore.name, associate: perp, amount, method: 'return_fraud' }, ctx));
+      }
+
+      // ── Cash skimming ──
+      if (chance(15 * mult)) {
+        const amount = 200 + Math.floor(Math.random() * 2000);
+        const method = faker.helpers.arrayElement([
+          `cash sale SEK ${amount} — transaction delayed, cash pocketed before register close`,
+          `register short SEK ${amount} at end of shift — ${perp} was sole operator`,
+          `cash payment received but transaction voided immediately after — SEK ${amount} missing`,
+        ]);
+        events.push(sEvt('Teamwork POS', 'CASH_DISCREPANCY',
+          `[Anomalous] ${targetStore.name}: ${method}`,
+          targetStore.id, { locationName: targetStore.name, associate: perp, amount, method: 'cash_skimming' }, ctx));
+      }
+
+      // ── Inventory theft: stealing from shelves/stockroom ──
+      if (chance(30 * mult)) {
+        const product = store.products[Math.floor(Math.random() * store.products.length)];
+        const skus = store.skus.filter(s => s.productId === product.id);
+        const sku = skus.length > 0 ? skus[Math.floor(Math.random() * skus.length)] : null;
+        if (sku) {
+          const qty = 1 + Math.floor(Math.random() * 2);
+          depleteStock(sku.id, targetStore.id, qty);
+          const method = faker.helpers.arrayElement([
+            `${qty}x ${product.name} missing from stockroom — no transfer record`,
+            `RFID count discrepancy: ${product.name} (${sku.colour}, ${sku.size}) — ${qty} unit(s) unaccounted for`,
+            `${product.name} found in staff area bag during unrelated check — ${perp} on shift`,
+          ]);
+          events.push(sEvt('Nedap iD Cloud', 'SHRINKAGE_DETECTED',
+            `[Anomalous] ${targetStore.name}: ${method}`,
+            targetStore.id, { locationName: targetStore.name, productName: product.name, quantity: qty, method: 'inventory_theft' }, ctx));
+        }
+      }
+
+      // ── Gift card fraud ──
+      if (chance(12 * mult)) {
+        const amount = 2000 + Math.floor(Math.random() * 8000);
+        const method = faker.helpers.arrayElement([
+          `gift card activated (SEK ${amount.toLocaleString()}) without payment — card removed from display by ${perp}`,
+          `gift card balance transfer: SEK ${amount.toLocaleString()} moved to new card, original marked as "defective"`,
+          `customer gift card "couldn't be read" — ${perp} issued replacement, kept original with SEK ${amount.toLocaleString()} balance`,
+        ]);
+        events.push(sEvt('Teamwork POS', 'GIFT_CARD_ANOMALY',
+          `[Anomalous] ${targetStore.name}: ${method}`,
+          targetStore.id, { locationName: targetStore.name, associate: perp, amount, method: 'gift_card_fraud' }, ctx));
+      }
+
+      // ── Time theft ──
+      if (chance(10 * mult)) {
+        const method = faker.helpers.arrayElement([
+          `${perp} clocked in at 09:45 but CCTV shows arrival at 10:30 — 45 min discrepancy`,
+          `buddy punching: ${perp} clocked in ${faker.helpers.arrayElement(conspirators.filter(c => c !== perp)) || 'colleague'} who was not on premises`,
+          `${perp} clocked out at 20:00 but left store at 18:15 per security gate log`,
+          `overtime claimed by ${perp} for Saturday — store was closed, no security entry recorded`,
+        ]);
+        events.push(sEvt('Store Operations', 'TIME_ANOMALY',
+          `[Anomalous] ${targetStore.name}: ${method}`,
+          targetStore.id, { locationName: targetStore.name, associate: perp, method: 'time_theft' }, ctx));
+      }
+
+      // ── Manager code abuse / policy manipulation ──
+      if (chance(12 * mult)) {
+        const method = faker.helpers.arrayElement([
+          `manager override used by ${perp} to force 40% discount — no authorization on file`,
+          `${perp} used ${ringleader}'s manager code to process return above SEK 5,000 limit`,
+          `price override: ${perp} changed POS price from SEK 14,500 to SEK 3,000 — manager code ${ringleader}`,
+          `void transaction approved with manager code after customer had already left store`,
+          `${perp} bypassed return policy (no receipt, >30 days) using manager override — SEK ${(3000 + Math.floor(Math.random() * 10000)).toLocaleString()} refund`,
+        ]);
+        events.push(sEvt('Teamwork POS', 'POLICY_OVERRIDE',
+          `[Anomalous] ${targetStore.name}: ${method}`,
+          targetStore.id, { locationName: targetStore.name, associate: perp, ringleader, method: 'policy_manipulation' }, ctx));
+      }
+
+      // ── Security system detecting patterns (escalates over time) ──
+      if (chance(8 * mult)) {
+        const finding = faker.helpers.arrayElement([
+          `Loss prevention flag: ${targetStore.name} shrinkage rate ${(2 + Math.random() * 4).toFixed(1)}% — industry average 1.4%`,
+          `POS analytics: ${targetStore.name} has ${30 + Math.floor(Math.random() * 20)}% more voids than peer stores`,
+          `Return rate anomaly: ${targetStore.name} return-to-sale ratio ${(15 + Math.random() * 15).toFixed(0)}% (network avg: 8%)`,
+          `RFID shrinkage alert: ${targetStore.name} inventory accuracy ${(85 + Math.random() * 8).toFixed(0)}% — below 95% threshold`,
+          `EAS gate alarms: ${targetStore.name} has ${3 + Math.floor(Math.random() * 5)} unresolved alarms this week — above normal`,
+          `Cash variance: ${targetStore.name} register shorts totaling SEK ${(1000 + Math.floor(Math.random() * 5000)).toLocaleString()} over ${3 + Math.floor(Math.random() * 5)} shifts — pattern detected`,
+        ]);
+        events.push(sEvt('Security', 'LOSS_PREVENTION_FLAG',
+          `${finding}`,
+          targetStore.id, { locationName: targetStore.name, severity: 'HIGH' }, ctx));
+      }
+
+      // ── Financial impact accumulating ──
+      if (chance(6 * mult)) {
+        const dailyLoss = 2000 + Math.floor(Math.random() * 8000);
+        events.push(sEvt('D365 ERP', 'SHRINKAGE_IMPACT',
+          `${targetStore.name}: estimated daily shrinkage SEK ${dailyLoss.toLocaleString()} — ${(dailyLoss * 30).toLocaleString()} projected monthly loss. Gross margin impact: -${(1 + Math.random() * 3).toFixed(1)}pp`,
+          targetStore.id, { locationName: targetStore.name, dailyLoss, monthlyLoss: dailyLoss * 30 }, ctx));
       }
 
       this.eventsGenerated += events.length;
