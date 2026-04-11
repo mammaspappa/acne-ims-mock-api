@@ -78,9 +78,9 @@ function sEvt(
     timestamp: now().toISOString(),
     system,
     type,
-    summary: `[SCENARIO] ${summary}`,
+    summary,
     entityId,
-    details: { ...details, _scenario: ctx },
+    details,
   };
 }
 
@@ -112,7 +112,7 @@ function createScenarioOrder(sku: { id: string; retailPrice: number; productId: 
     id: generateId(), salesOrderId: soId, skuId: sku.id,
     quantityOrdered: qty, quantityAllocated: 0, quantityShipped: 0, quantityReturned: 0,
     unitPrice, discountPercent: discount, lineTotal,
-    notes: '[SCENARIO]', createdAt: now().toISOString(), updatedAt: now().toISOString(),
+    notes: null, createdAt: now().toISOString(), updatedAt: now().toISOString(),
   };
   const so: SalesOrder = {
     id: soId, soNumber, channel: 'ECOMMERCE', type: 'STANDARD', status: 'CONFIRMED',
@@ -125,7 +125,7 @@ function createScenarioOrder(sku: { id: string; retailPrice: number; productId: 
     shippingAddress: faker.location.streetAddress(), shippingCity: faker.location.city(),
     shippingCountry: market,
     requestedShipDate: now().toISOString(), actualShipDate: null, deliveredAt: null,
-    notes: `[SCENARIO] Order from ${market}`, priority: 0,
+    notes: `Online order from ${market}`, priority: 0,
     createdById: ecomUser.id, createdAt: now().toISOString(), updatedAt: now().toISOString(),
   };
   store.salesOrders.push(so);
@@ -463,15 +463,7 @@ export function processScenarioTick(simClockIso?: string): SimEvent[] {
     if (checkTime > new Date(scenario.expiresAt)) {
       scenario.status = 'RESOLVED';
       scenario.resolvedAt = simClockIso || now().toISOString();
-      events.push({
-        id: generateId(),
-        timestamp: simClockIso || now().toISOString(),
-        system: 'Simulation',
-        type: 'SCENARIO_RESOLVED',
-        summary: `[SCENARIO ENDED] "${scenario.name}" has expired and been auto-resolved after generating ${scenario.eventsGenerated} events`,
-        entityId: null,
-        details: { instanceId: scenario.instanceId, scenarioId: scenario.scenarioId, eventsGenerated: scenario.eventsGenerated },
-      });
+      // No announcement in event log — facilitator can check /scenarios/active
       continue;
     }
 
@@ -1061,8 +1053,8 @@ function makeSupplierDisruption(base: Omit<ActiveScenarioInternal, 'generateTick
           const newDate = new Date(new Date(po.expectedDelivery).getTime() + delayDays * 86400000);
           po.expectedDelivery = newDate.toISOString();
           po.updatedAt = now().toISOString();
-          if (po.notes) po.notes += ` | [SCENARIO] Delayed ${delayDays}d: ${cause}`;
-          else po.notes = `[SCENARIO] Delayed ${delayDays}d: ${cause}`;
+          if (po.notes) po.notes += ` | Delayed ${delayDays}d: ${cause}`;
+          else po.notes = `Delayed ${delayDays}d: ${cause}`;
         }
         events.push(sEvt('Supply Chain', 'PO_DELAY',
           `${supplier.name}: ${po.poNumber} delayed ${delayDays}+ days due to ${cause} — status: ${po.status}`,
@@ -1446,7 +1438,7 @@ function makeWarehouseOutage(base: Omit<ActiveScenarioInternal, 'generateTick'>,
         if (eligible.length > 0) {
           const so = eligible[Math.floor(Math.random() * eligible.length)];
           so.status = 'ON_HOLD' as any;
-          so.notes = (so.notes || '') + ` | [SCENARIO] On hold: ${warehouse.name} outage`;
+          so.notes = (so.notes || '') + ` | On hold: ${warehouse.name} outage`;
           so.updatedAt = now().toISOString();
         }
         const orders = 5 + Math.floor(Math.random() * 25);
@@ -2062,7 +2054,7 @@ function makeEmployeeFraudRing(base: Omit<ActiveScenarioInternal, 'generateTick'
           // Actually deplete stock without recording proper sale
           depleteStock(sku.id, targetStore.id, 1);
           events.push(sEvt('Teamwork POS', 'SWEETHEART_TRANSACTION',
-            `[Anomalous] ${targetStore.name}: ${perp} — ${method}`,
+            `${targetStore.name}: ${perp} — ${method}`,
             targetStore.id, { locationName: targetStore.name, associate: perp, productName: product.name, method: 'sweethearting' }, ctx));
         }
       }
@@ -2078,7 +2070,7 @@ function makeEmployeeFraudRing(base: Omit<ActiveScenarioInternal, 'generateTick'
           `duplicate return: same receipt used twice — SEK ${amount.toLocaleString()} extra refund issued`,
         ]);
         events.push(sEvt('Teamwork POS', 'FRAUDULENT_RETURN',
-          `[Anomalous] ${targetStore.name}: ${perp} — ${method}`,
+          `${targetStore.name}: ${perp} — ${method}`,
           targetStore.id, { locationName: targetStore.name, associate: perp, amount, method: 'return_fraud' }, ctx));
       }
 
@@ -2091,7 +2083,7 @@ function makeEmployeeFraudRing(base: Omit<ActiveScenarioInternal, 'generateTick'
           `cash payment received but transaction voided immediately after — SEK ${amount} missing`,
         ]);
         events.push(sEvt('Teamwork POS', 'CASH_DISCREPANCY',
-          `[Anomalous] ${targetStore.name}: ${method}`,
+          `${targetStore.name}: ${method}`,
           targetStore.id, { locationName: targetStore.name, associate: perp, amount, method: 'cash_skimming' }, ctx));
       }
 
@@ -2109,7 +2101,7 @@ function makeEmployeeFraudRing(base: Omit<ActiveScenarioInternal, 'generateTick'
             `${product.name} found in staff area bag during unrelated check — ${perp} on shift`,
           ]);
           events.push(sEvt('Nedap iD Cloud', 'SHRINKAGE_DETECTED',
-            `[Anomalous] ${targetStore.name}: ${method}`,
+            `${targetStore.name}: ${method}`,
             targetStore.id, { locationName: targetStore.name, productName: product.name, quantity: qty, method: 'inventory_theft' }, ctx));
         }
       }
@@ -2123,7 +2115,7 @@ function makeEmployeeFraudRing(base: Omit<ActiveScenarioInternal, 'generateTick'
           `customer gift card "couldn't be read" — ${perp} issued replacement, kept original with SEK ${amount.toLocaleString()} balance`,
         ]);
         events.push(sEvt('Teamwork POS', 'GIFT_CARD_ANOMALY',
-          `[Anomalous] ${targetStore.name}: ${method}`,
+          `${targetStore.name}: ${method}`,
           targetStore.id, { locationName: targetStore.name, associate: perp, amount, method: 'gift_card_fraud' }, ctx));
       }
 
@@ -2136,7 +2128,7 @@ function makeEmployeeFraudRing(base: Omit<ActiveScenarioInternal, 'generateTick'
           `overtime claimed by ${perp} for Saturday — store was closed, no security entry recorded`,
         ]);
         events.push(sEvt('Store Operations', 'TIME_ANOMALY',
-          `[Anomalous] ${targetStore.name}: ${method}`,
+          `${targetStore.name}: ${method}`,
           targetStore.id, { locationName: targetStore.name, associate: perp, method: 'time_theft' }, ctx));
       }
 
@@ -2150,7 +2142,7 @@ function makeEmployeeFraudRing(base: Omit<ActiveScenarioInternal, 'generateTick'
           `${perp} bypassed return policy (no receipt, >30 days) using manager override — SEK ${(3000 + Math.floor(Math.random() * 10000)).toLocaleString()} refund`,
         ]);
         events.push(sEvt('Teamwork POS', 'POLICY_OVERRIDE',
-          `[Anomalous] ${targetStore.name}: ${method}`,
+          `${targetStore.name}: ${method}`,
           targetStore.id, { locationName: targetStore.name, associate: perp, ringleader, method: 'policy_manipulation' }, ctx));
       }
 

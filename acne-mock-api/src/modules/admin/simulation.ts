@@ -155,20 +155,7 @@ export async function startSimulation(durationHours = 8, speedMultiplier = 1, au
       const randomId = scenarioIds[Math.floor(Math.random() * scenarioIds.length)];
       const severities = ['LOW', 'MEDIUM', 'MEDIUM', 'HIGH', 'HIGH', 'CRITICAL'] as const;
       const severity = severities[Math.floor(Math.random() * severities.length)];
-      const result = activateScenario(randomId, { severity }, simClockIso);
-      if (result) {
-        const announcement: SimEvent = {
-          id: generateId(),
-          timestamp: simClockIso,
-          system: 'Simulation',
-          type: 'AUTO_SCENARIO_TRIGGERED',
-          summary: `[AUTO SCENARIO] "${result.name}" triggered at ${severity} severity — expires at ${result.expiresAt}`,
-          entityId: null,
-          details: { instanceId: result.instanceId, scenarioId: result.scenarioId, severity, context: result.context },
-        };
-        state.eventLog.push(announcement);
-        state.eventsGenerated++;
-      }
+      activateScenario(randomId, { severity }, simClockIso);
       // Schedule next auto-scenario 6-48 hours of sim time later
       state.nextAutoScenarioSimTime = simClock.getTime() + (21600000 + Math.random() * 151200000);
     }

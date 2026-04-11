@@ -1032,9 +1032,7 @@ function addMapEventDot(system, locationName, details) {
     lonlat = all[Math.floor(Math.random() * all.length)];
   }
   const jitter = [(Math.random()-0.5)*2, (Math.random()-0.5)*2];
-  const isScenario = system === 'SCENARIO';
-  const color = isScenario ? 'rgba(224,80,80,0.8)'
-    : (system.includes('POS') || system.includes('Teamwork')) ? 'rgba(200,147,122,0.8)'
+  const color = (system.includes('POS') || system.includes('Teamwork')) ? 'rgba(200,147,122,0.8)'
     : system.includes('SFCC') ? 'rgba(160,120,94,0.8)'
     : system.includes('Blue Yonder') || system.includes('Carrier') ? 'rgba(212,196,184,0.8)'
     : 'rgba(200,147,122,0.7)';
@@ -1066,8 +1064,7 @@ function feedMapEvents(recentEvents) {
   if (!recentEvents || recentEvents.length === 0) return;
   for (const e of recentEvents.slice(0, 5)) {
     const locName = e.details?.locationName || e.details?.warehouseName || null;
-    const isScenario = e.summary?.startsWith('[SCENARIO]');
-    addMapEventDot(isScenario ? 'SCENARIO' : e.system, locName, e.details);
+    addMapEventDot(e.system, locName, e.details);
   }
 }
 
