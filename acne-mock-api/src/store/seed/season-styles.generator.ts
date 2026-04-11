@@ -45,7 +45,7 @@ const CATEGORIES: CategoryDef[] = [
   },
   {
     category: 'Denim',
-    subCategories: ['Regular Fit', 'Relaxed Fit', 'Slim Fit', 'Bootcut', 'Straight Leg', 'Wide Leg', 'Cropped'],
+    subCategories: ['Regular Fit', 'Relaxed Fit', 'Slim Fit', 'Bootcut', 'Straight Leg', 'Wide Leg', 'Cropped', 'Slim Tapered', 'Loose Fit'],
     genders: ['Women', 'Men', 'Unisex'],
     costRange: [1300, 2800], retailRange: [4500, 10000],
     collections: ['Blå Konst'],
@@ -105,14 +105,30 @@ const CATEGORIES: CategoryDef[] = [
   },
 ];
 
-// Acne Studios style first names (used for product naming)
+// ─── Naming pools ───────────────────────────────────────
+// Scandinavian first names — the main identifier in Acne product names
 const STYLE_NAMES = [
   'Alva', 'Birk', 'Cleo', 'Dag', 'Elsa', 'Frej', 'Greta', 'Hjalmar',
   'Ines', 'Joar', 'Karin', 'Lars', 'Maja', 'Nils', 'Ottilia', 'Pelle',
   'Runa', 'Sigrid', 'Tove', 'Ulf', 'Vera', 'Wilma', 'Ylva', 'Zara',
   'Arvid', 'Britt', 'Caspian', 'Disa', 'Ebbe', 'Fiona', 'Gustav', 'Hedda',
   'Ivar', 'Juni', 'Knut', 'Liv', 'Milo', 'Nora', 'Oskar', 'Petra',
+  'Signe', 'Tyra', 'Vidar', 'Astrid', 'Leif', 'Ronja', 'Selma', 'Torsten',
+  'Embla', 'Folke', 'Hillevi', 'Stellan', 'Bodil', 'Ingvar', 'Svea', 'Axel',
+  'Thyra', 'Viggo', 'Lovisa', 'Tindra',
 ];
+
+// Category-specific descriptors that sit between name and subCategory
+const OUTERWEAR_DESCRIPTORS = ['Oversized', 'Quilted', 'Technical', 'Padded', 'Belted', 'Cropped', 'Tailored', 'Relaxed', 'Double-Breasted', 'Hooded'];
+const KNITWEAR_DESCRIPTORS = ['Mohair', 'Chunky', 'Ribbed', 'Lambswool', 'Cable Knit', 'Merino', 'Cashmere Blend', 'Brushed', 'Bouclé', 'Alpaca'];
+const TOPS_DESCRIPTORS = ['Organic Cotton', 'Boxy', 'Fitted', 'Acid Wash', 'Distressed', 'Garment Dyed', 'Striped', 'Layered', 'Cropped'];
+const TROUSER_DESCRIPTORS = ['Relaxed', 'Pleated', 'Tapered', 'Cropped', 'High-Rise', 'Drawstring', 'Tailored'];
+const FOOTWEAR_DESCRIPTORS = ['Tumbled Leather', 'Suede', 'Chunky', 'Platform', 'Lug Sole', 'Patent', 'Brushed Leather', 'Canvas'];
+const ACCESSORY_DESCRIPTORS = ['Mini', 'Midi', 'Large', 'Micro', 'Knotted', 'Quilted', 'Zip'];
+
+// Denim: uses place names or year-based naming instead of Scandinavian first names
+const DENIM_PLACE_NAMES = ['North', 'South', 'River', 'Climb', 'Mece', 'Creek', 'Peak', 'Coast', 'Fjord', 'Vale', 'Ridge', 'Glen', 'Stone', 'Birch', 'Cedar'];
+const DENIM_YEARS = ['1972', '1977', '1981', '1986', '1989', '1992', '1996', '2003', '2008', '2014', '2019', '2021', '2022', '2024'];
 
 const ALL_COLORS = colorsData.map(c => c.code);
 
@@ -123,14 +139,61 @@ const SS_COLORS = ['OWH', 'PBL', 'DPK', 'ECR', 'OAT', 'BLK', 'RST'];
 
 let styleSeq = 0;
 
+// ─── Name builder per category ──────────────────────────
+
+function buildName(
+  firstName: string,
+  cat: CategoryDef,
+  subCategory: string,
+  collection: string,
+): string {
+  // Denim (Blå Konst): "{SubCategory} Jeans {PlaceName/Year}"
+  if (cat.category === 'Denim') {
+    const suffix = Math.random() < 0.5
+      ? faker.helpers.arrayElement(DENIM_PLACE_NAMES)
+      : faker.helpers.arrayElement(DENIM_YEARS);
+    return `${subCategory} Jeans ${suffix}`;
+  }
+
+  // Face Collection: "{Name} Face {SubCategory}"
+  if (collection === 'Face Collection') {
+    return `${firstName} Face ${subCategory}`;
+  }
+
+  // Pick a category-appropriate descriptor (~70% chance to include one)
+  let descriptor = '';
+  if (Math.random() < 0.7) {
+    const pool =
+      cat.category === 'Outerwear' ? OUTERWEAR_DESCRIPTORS :
+      cat.category === 'Knitwear' ? KNITWEAR_DESCRIPTORS :
+      cat.category === 'T-shirts' ? TOPS_DESCRIPTORS :
+      cat.category === 'Trousers' ? TROUSER_DESCRIPTORS :
+      cat.category === 'Footwear' ? FOOTWEAR_DESCRIPTORS :
+      cat.category === 'Accessories' ? ACCESSORY_DESCRIPTORS :
+      [];
+    if (pool.length > 0) {
+      descriptor = faker.helpers.arrayElement(pool);
+    }
+  }
+
+  // Assemble: "{Name} [{Descriptor}] {SubCategory}"
+  return descriptor
+    ? `${firstName} ${descriptor} ${subCategory}`
+    : `${firstName} ${subCategory}`;
+}
+
+// ─── Main generator ─────────────────────────────────────
+
 export function generateSeasonStyles(
   season: Season,
-  seasonYear: number,
+  _seasonYear: number,
   count: number = 20 + Math.floor(Math.random() * 10),
 ): GeneratedStyle[] {
   const isSS = season === 'SS' || season === 'RESORT';
   const styles: GeneratedStyle[] = [];
-  const usedNames = new Set<string>();
+
+  // Pre-shuffle names so each product gets a unique first name without retries
+  const shuffledNames = faker.helpers.shuffle([...STYLE_NAMES]);
 
   // Weight categories by season type
   const weightedCats = CATEGORIES.map(c => ({
@@ -138,6 +201,8 @@ export function generateSeasonStyles(
     weight: isSS ? c.ssWeight : c.awWeight,
   }));
   const totalWeight = weightedCats.reduce((s, c) => s + c.weight, 0);
+
+  const usedNames = new Set<string>();
 
   for (let i = 0; i < count; i++) {
     // Pick category weighted by season
@@ -151,17 +216,22 @@ export function generateSeasonStyles(
     const subCategory = faker.helpers.arrayElement(cat.subCategories);
     const gender = faker.helpers.arrayElement(cat.genders);
     const genderCode = gender === 'Women' ? 'WN' : gender === 'Men' ? 'MN' : 'UX';
+    const collection = faker.helpers.arrayElement(cat.collections);
 
-    // Pick a unique Acne-style name (with fallback to avoid infinite loop)
-    let name: string;
-    let nameAttempts = 0;
-    do {
-      const firstName = faker.helpers.arrayElement(STYLE_NAMES);
-      name = nameAttempts < 50
-        ? `${firstName} ${subCategory}`
-        : `${firstName} ${subCategory} ${seasonYear}`;
-      nameAttempts++;
-    } while (usedNames.has(name) && nameAttempts < 100);
+    // Assign a unique first name from the shuffled pool
+    const firstName = i < shuffledNames.length
+      ? shuffledNames[i]
+      : `${faker.helpers.arrayElement(STYLE_NAMES)}${i}`; // fallback for very large counts
+
+    // Build category-appropriate name
+    let name = buildName(firstName, cat, subCategory, collection);
+
+    // Deduplicate (rare, but possible for denim which doesn't use firstName)
+    if (usedNames.has(name)) {
+      name = cat.category === 'Denim'
+        ? `${subCategory} Jeans ${firstName}`  // fall back to using a name
+        : `${firstName} ${subCategory}`;       // drop descriptor
+    }
     usedNames.add(name);
 
     styleSeq++;
@@ -174,7 +244,6 @@ export function generateSeasonStyles(
     const palette = isSS ? SS_COLORS : AW_COLORS;
     const colorCount = 2 + Math.floor(Math.random() * 2);
     const colors: string[] = [];
-    // First color always from palette
     colors.push(faker.helpers.arrayElement(palette));
     while (colors.length < colorCount) {
       const c = Math.random() < 0.7
@@ -184,7 +253,6 @@ export function generateSeasonStyles(
     }
 
     const sizes = faker.helpers.arrayElement(cat.sizes);
-    const collection = faker.helpers.arrayElement(cat.collections);
 
     styles.push({
       styleNumber,
