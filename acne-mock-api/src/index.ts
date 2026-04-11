@@ -9,6 +9,7 @@ import { latencyPlugin } from './plugins/latency.plugin.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { productRoutes } from './modules/products/products.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
+import { seasonDropRoutes } from './modules/admin/season-drop.routes.js';
 import { purchaseOrderRoutes } from './modules/purchase-orders/po.routes.js';
 import { inventoryRoutes } from './modules/inventory/inventory.routes.js';
 import { salesOrderRoutes } from './modules/sales-orders/so.routes.js';
@@ -111,6 +112,7 @@ async function buildServer() {
     await api.register(authRoutes);
     await api.register(productRoutes);
     await api.register(adminRoutes);
+    await api.register(seasonDropRoutes);
     await api.register(purchaseOrderRoutes);
     await api.register(inventoryRoutes);
     await api.register(salesOrderRoutes);

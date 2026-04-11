@@ -180,7 +180,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
     schema: {
       tags: ['Admin'],
       summary: 'Activate a scenario during simulation',
-      description: 'Starts a scenario that injects disruptive events into the simulation. Requires a running simulation.\n\n**Available scenarios:** VIRAL_PRODUCT, CELEBRITY_ENDORSEMENT, FLASH_SALE_GONE_WRONG, GEOPOLITICAL_DISRUPTION, MARKET_RECESSION, GLOBAL_ECONOMIC_SLOWDOWN, CURRENCY_CRISIS, SUPPLIER_DISRUPTION, LOGISTICS_BOTTLENECK, RAW_MATERIAL_SHORTAGE, QUALITY_CRISIS, COUNTERFEIT_SURGE, WAREHOUSE_OUTAGE, PAYMENT_PROVIDER_OUTAGE, CYBER_INCIDENT, WEATHER_ANOMALY\n\n**Severity levels:** LOW, MEDIUM, HIGH, CRITICAL — controls event frequency and intensity.\n\nAll parameters except passphrase and scenarioId are optional — sensible random values are chosen if omitted.',
+      description: 'Starts a scenario that injects disruptive events into the simulation. Requires a running simulation.\n\n**Available scenarios:** VIRAL_PRODUCT, CELEBRITY_ENDORSEMENT, FLASH_SALE_GONE_WRONG, GEOPOLITICAL_DISRUPTION, MARKET_RECESSION, GLOBAL_ECONOMIC_SLOWDOWN, CURRENCY_CRISIS, SUPPLIER_DISRUPTION, LOGISTICS_BOTTLENECK, RAW_MATERIAL_SHORTAGE, QUALITY_CRISIS, COUNTERFEIT_SURGE, WAREHOUSE_OUTAGE, PAYMENT_PROVIDER_OUTAGE, CYBER_INCIDENT, WEATHER_ANOMALY, SEASON_LAUNCH\n\n**Severity levels:** LOW, MEDIUM, HIGH, CRITICAL — controls event frequency and intensity.\n\nAll parameters except passphrase and scenarioId are optional — sensible random values are chosen if omitted.',
       body: {
         type: 'object',
         required: ['passphrase', 'scenarioId'],
