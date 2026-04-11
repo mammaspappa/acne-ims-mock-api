@@ -177,7 +177,6 @@ export async function startSimulation(durationHours = 8, speedMultiplier = 1, au
     const simDay = simClock.toISOString().slice(0, 10);
     if (simDay !== lastCalendarCheckDay) {
       lastCalendarCheckDay = simDay;
-      loadDefaultCalendar(store);
       const dropResults = checkCalendarDrops(store, simClock);
       for (const result of dropResults) {
         const dropEvt: SimEvent = {

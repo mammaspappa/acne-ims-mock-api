@@ -152,12 +152,16 @@ export function generateSeasonStyles(
     const gender = faker.helpers.arrayElement(cat.genders);
     const genderCode = gender === 'Women' ? 'WN' : gender === 'Men' ? 'MN' : 'UX';
 
-    // Pick a unique Acne-style name
+    // Pick a unique Acne-style name (with fallback to avoid infinite loop)
     let name: string;
+    let nameAttempts = 0;
     do {
       const firstName = faker.helpers.arrayElement(STYLE_NAMES);
-      name = `${firstName} ${subCategory}`;
-    } while (usedNames.has(name));
+      name = nameAttempts < 50
+        ? `${firstName} ${subCategory}`
+        : `${firstName} ${subCategory} ${seasonYear}`;
+      nameAttempts++;
+    } while (usedNames.has(name) && nameAttempts < 100);
     usedNames.add(name);
 
     styleSeq++;

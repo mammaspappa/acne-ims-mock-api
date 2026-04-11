@@ -91,9 +91,9 @@ export async function timeTravelHandler(
     loadDefaultCalendar(store);
     const drops = checkCalendarDrops(store, d);
     const dropMsg = drops.length > 0
-      ? ` ${drops.length} season drop(s) triggered: ${drops.map(r => r.drop.label).join(', ')}`
-      : '';
-    return reply.send({ status: 'ok', currentDate: d.toISOString(), seasonDrops: drops.length || undefined, message: dropMsg || undefined });
+      ? `${drops.length} season drop(s) triggered: ${drops.map(r => r.drop.label).join(', ')}`
+      : undefined;
+    return reply.send({ status: 'ok', currentDate: d.toISOString(), seasonDrops: drops.length || undefined, message: dropMsg });
   }
 
   if (advanceDays !== undefined) {
@@ -103,9 +103,9 @@ export async function timeTravelHandler(
     loadDefaultCalendar(store);
     const drops = checkCalendarDrops(store, current);
     const dropMsg = drops.length > 0
-      ? ` ${drops.length} season drop(s) triggered: ${drops.map(r => r.drop.label).join(', ')}`
-      : '';
-    return reply.send({ status: 'ok', currentDate: current.toISOString(), seasonDrops: drops.length || undefined, message: dropMsg || undefined });
+      ? `${drops.length} season drop(s) triggered: ${drops.map(r => r.drop.label).join(', ')}`
+      : undefined;
+    return reply.send({ status: 'ok', currentDate: current.toISOString(), seasonDrops: drops.length || undefined, message: dropMsg });
   }
 
   setMockNow(null);
