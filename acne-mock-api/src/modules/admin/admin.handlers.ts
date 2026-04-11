@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { store } from '../../store/Store.js';
 import { setLatency, getLatency, setLatencyPreset, getPresets } from '../../plugins/latency.plugin.js';
 import { setMockNow, now } from '../../utils/date.js';
+import { checkCalendarDrops, loadDefaultCalendar } from './season-drop.js';
 
 export async function healthHandler(_request: FastifyRequest, reply: FastifyReply) {
   return reply.send({
@@ -87,14 +88,24 @@ export async function timeTravelHandler(
       return reply.status(400).send({ error: 'Invalid date format' });
     }
     setMockNow(d);
-    return reply.send({ status: 'ok', currentDate: d.toISOString() });
+    loadDefaultCalendar(store);
+    const drops = checkCalendarDrops(store, d);
+    const dropMsg = drops.length > 0
+      ? ` ${drops.length} season drop(s) triggered: ${drops.map(r => r.drop.label).join(', ')}`
+      : '';
+    return reply.send({ status: 'ok', currentDate: d.toISOString(), seasonDrops: drops.length || undefined, message: dropMsg || undefined });
   }
 
   if (advanceDays !== undefined) {
     const current = now();
     current.setDate(current.getDate() + advanceDays);
     setMockNow(current);
-    return reply.send({ status: 'ok', currentDate: current.toISOString() });
+    loadDefaultCalendar(store);
+    const drops = checkCalendarDrops(store, current);
+    const dropMsg = drops.length > 0
+      ? ` ${drops.length} season drop(s) triggered: ${drops.map(r => r.drop.label).join(', ')}`
+      : '';
+    return reply.send({ status: 'ok', currentDate: current.toISOString(), seasonDrops: drops.length || undefined, message: dropMsg || undefined });
   }
 
   setMockNow(null);

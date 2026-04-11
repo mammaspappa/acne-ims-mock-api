@@ -1,0 +1,7 @@
+[
+  { "season": "SS", "seasonYear": 2027, "label": "Spring/Summer 2027", "dropDate": "2026-09-15", "enabled": true },
+  { "season": "PRE_FALL", "seasonYear": 2027, "label": "Pre-Fall 2027", "dropDate": "2026-12-01", "enabled": true },
+  { "season": "AW", "seasonYear": 2027, "label": "Autumn/Winter 2027", "dropDate": "2027-02-15", "enabled": true },
+  { "season": "RESORT", "seasonYear": 2028, "label": "Resort 2028", "dropDate": "2027-05-01", "enabled": true },
+  { "season": "SS", "seasonYear": 2028, "label": "Spring/Summer 2028", "dropDate": "2027-09-15", "enabled": true }
+]

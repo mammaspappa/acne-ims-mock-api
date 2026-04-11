@@ -334,6 +334,19 @@ export const SCENARIO_CATALOG: ScenarioCatalogEntry[] = [
     defaultSeverity: 'MEDIUM',
     configurableParams: ['region', 'weatherType', 'severity', 'durationMinutes'],
   },
+
+  // ── Season Launch ────────────────────────────────────
+  {
+    id: 'SEASON_LAUNCH',
+    name: 'Season Collection Launch',
+    description: 'A new season collection launches across all channels, triggering a surge in wholesale orders, press coverage, e-commerce traffic, inventory allocation pressure, and warehouse processing spikes.',
+    category: 'BUSINESS',
+    affects: 'All channels, wholesale, PLM, inventory, e-commerce, marketing, warehouse',
+    exampleTrigger: 'SS27 collection officially launches across all Acne Studios channels simultaneously',
+    defaultDurationMinutes: 20160, // 2 weeks
+    defaultSeverity: 'HIGH',
+    configurableParams: ['season', 'seasonYear', 'severity', 'durationMinutes'],
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -380,6 +393,7 @@ export function activateScenario(scenarioId: string, params: Record<string, unkn
     PAYMENT_PROVIDER_OUTAGE: makePaymentOutage,
     CYBER_INCIDENT: makeCyberIncident,
     WEATHER_ANOMALY: makeWeatherAnomaly,
+    SEASON_LAUNCH: makeSeasonLaunch,
   };
 
   const maker = makers[scenarioId];
@@ -1670,6 +1684,108 @@ function makeWeatherAnomaly(base: Omit<ActiveScenarioInternal, 'generateTick'>, 
         events.push(sEvt('AI Intelligence', 'REALLOCATION_RECOMMENDATION',
           `AI recommendation: transfer ${surgeCat.toLowerCase()} inventory from ${isWarm ? 'cold' : 'warm'}-weather markets to ${region} — projected revenue uplift: SEK ${(50000 + Math.floor(Math.random() * 150000)).toLocaleString()}`,
           null, { surgeCategory: surgeCat, region }, ctx));
+      }
+
+      this.eventsGenerated += events.length;
+      return events;
+    },
+  };
+}
+
+// ─── 17. SEASON LAUNCH ──────────────────────────────────
+// Simulates the market reaction to a new collection launch.
+// Effects: wholesale order surge, press buzz, e-commerce traffic spike,
+// warehouse processing pressure, inventory allocation scramble.
+
+function makeSeasonLaunch(base: Omit<ActiveScenarioInternal, 'generateTick'>, params: Record<string, unknown>): ActiveScenarioInternal {
+  const season = (params.season as string) || 'SS';
+  const seasonYear = (params.seasonYear as number) || 2027;
+  const label = `${season === 'SS' ? 'Spring/Summer' : season === 'AW' ? 'Autumn/Winter' : season === 'PRE_FALL' ? 'Pre-Fall' : season === 'RESORT' ? 'Resort' : season} ${seasonYear}`;
+
+  // Find products for this season (if drop has happened) or fall back to newest products
+  const seasonProducts = store.products.filter(p => p.season === season && p.seasonYear === seasonYear);
+  const products = seasonProducts.length > 0 ? seasonProducts : store.products.slice(-20);
+  const mult = sevMult(base.severity);
+
+  base.name = `Season Launch: ${label}`;
+  base.context = { season, seasonYear, label, productCount: products.length };
+  const ctx = { id: base.instanceId, name: base.name };
+
+  return {
+    ...base,
+    generateTick() {
+      const events: SimEvent[] = [];
+      const product = products.length > 0 ? faker.helpers.arrayElement(products) : rProduct();
+      const skus = skusFor(product.id);
+
+      // Wholesale order surge
+      if (chance(40 * mult)) {
+        const partner = faker.company.name();
+        const units = 50 + Math.floor(Math.random() * 500);
+        const market = rMarket();
+        events.push(sEvt('NuORDER', 'WHOLESALE_ORDER',
+          `${label} wholesale order: ${partner} (${market}) ordered ${units} units of ${product.name}`,
+          product.id, { partner, market, units, productName: product.name, season, seasonYear }, ctx));
+      }
+
+      // E-commerce traffic spike
+      if (chance(45 * mult)) {
+        const market = rMarket();
+        const increase = 30 + Math.floor(Math.random() * 80);
+        events.push(sEvt('SFCC', 'TRAFFIC_SURGE',
+          `${label} launch traffic: ${market} e-commerce up ${increase}% — ${product.name} is trending`,
+          null, { market, increase, productName: product.name }, ctx));
+      }
+
+      // E-commerce orders on new collection
+      if (chance(50 * mult) && skus.length > 0) {
+        const sku = faker.helpers.arrayElement(skus);
+        const market = rMarket();
+        const { soId, soNumber } = createScenarioOrder(sku, market);
+        events.push(sEvt('SFCC', 'ECOMMERCE_ORDER',
+          `${label} launch order: ${soNumber} — ${product.name} (${sku.colour}, ${sku.size}) from ${market}`,
+          soId, { soNumber, productName: product.name, market, season, seasonYear }, ctx));
+      }
+
+      // Press & media coverage
+      if (chance(20 * mult)) {
+        const outlet = faker.helpers.arrayElement(['Vogue', 'GQ', 'Highsnobiety', 'Hypebeast', 'WWD', 'Business of Fashion', 'Dazed', 'i-D', 'SSENSE', 'Elle']);
+        events.push(sEvt('Marketing', 'PRESS_COVERAGE',
+          `${outlet} features ${label} collection — highlighting ${product.name} as a standout piece`,
+          product.id, { outlet, productName: product.name, season, seasonYear }, ctx));
+      }
+
+      // Warehouse processing spike
+      if (chance(25 * mult)) {
+        const wh = rWarehouse();
+        const orders = 20 + Math.floor(Math.random() * 80);
+        events.push(sEvt('Blue Yonder WMS', 'PROCESSING_SPIKE',
+          `${wh.name}: ${orders} pick tasks queued for ${label} launch orders — processing capacity at ${70 + Math.floor(Math.random() * 25)}%`,
+          wh.id, { warehouseName: wh.name, orders, season, seasonYear }, ctx));
+      }
+
+      // PLM finalization events
+      if (chance(15 * mult)) {
+        events.push(sEvt('Centric PLM', 'COLLECTION_FINALIZED',
+          `${label} collection: ${product.name} tech pack approved — moving to full production`,
+          product.id, { productName: product.name, season, seasonYear }, ctx));
+      }
+
+      // Stock allocation pressure
+      if (chance(20 * mult)) {
+        const loc = rStore();
+        events.push(sEvt('AI Intelligence', 'ALLOCATION_PRESSURE',
+          `${loc.name}: requesting ${label} allocation for ${product.name} — current stock: 0 units, demand forecast: ${10 + Math.floor(Math.random() * 40)} units`,
+          loc.id, { locationName: loc.name, productName: product.name, season, seasonYear }, ctx));
+      }
+
+      // Social media buzz
+      if (chance(30 * mult)) {
+        const platform = faker.helpers.arrayElement(['Instagram', 'TikTok', 'X/Twitter', 'Pinterest', 'Xiaohongshu']);
+        const engagement = (5 + Math.random() * 20).toFixed(1);
+        events.push(sEvt('Marketing', 'SOCIAL_BUZZ',
+          `${platform}: ${label} launch content — ${engagement}K engagements, ${product.name} featured in ${3 + Math.floor(Math.random() * 10)} creator posts`,
+          null, { platform, engagement, productName: product.name, season, seasonYear }, ctx));
       }
 
       this.eventsGenerated += events.length;

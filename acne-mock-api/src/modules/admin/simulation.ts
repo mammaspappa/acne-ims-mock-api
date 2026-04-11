@@ -11,6 +11,7 @@ import { faker } from '@faker-js/faker';
 import type { SalesOrder, SOLine, PurchaseOrder, POLine, POStatus, SOStatus, StockMovement, Shipment, SOStatusHistory, POStatusHistory, POReceipt, AuditLog, DemandForecast, AIRecommendation, AnomalyAlert, SOPOMatch, MatchingRun } from '../../store/types.js';
 import { nextSequence } from '../../utils/number-sequence.js';
 import { processScenarioTick, clearAllScenarios, activateScenario, SCENARIO_CATALOG, getActiveScenarios } from './scenarios.js';
+import { checkCalendarDrops, loadDefaultCalendar } from './season-drop.js';
 
 // ─── Simulation State ─────────────────────────────────
 
@@ -102,6 +103,8 @@ export async function startSimulation(durationHours = 8, speedMultiplier = 1, au
 
   // Initialize simulated clock to current time (or mock time if time-traveled)
   simClock = now();
+  lastCalendarCheckDay = '';
+  loadDefaultCalendar(store);
 
   const endTime = new Date(now().getTime() + (durationHours * 3600000) / state.speedMultiplier);
   state.endsAt = endTime.toISOString();
@@ -168,6 +171,27 @@ export async function startSimulation(durationHours = 8, speedMultiplier = 1, au
       }
       // Schedule next auto-scenario 6-48 hours of sim time later
       state.nextAutoScenarioSimTime = simClock.getTime() + (21600000 + Math.random() * 151200000);
+    }
+
+    // Check for calendar-based season drops (at most once per simulated day)
+    const simDay = simClock.toISOString().slice(0, 10);
+    if (simDay !== lastCalendarCheckDay) {
+      lastCalendarCheckDay = simDay;
+      loadDefaultCalendar(store);
+      const dropResults = checkCalendarDrops(store, simClock);
+      for (const result of dropResults) {
+        const dropEvt: SimEvent = {
+          id: generateId(),
+          timestamp: simClockIso,
+          system: 'Simulation',
+          type: 'SEASON_DROP_EXECUTED',
+          summary: `[SEASON DROP] ${result.drop.label} launched — ${result.drop.productsCreated} products, ${result.drop.skusCreated} SKUs, ${result.drop.purchaseOrdersCreated} POs created`,
+          entityId: result.drop.id,
+          details: { dropId: result.drop.id, season: result.drop.season, seasonYear: result.drop.seasonYear, productsCreated: result.drop.productsCreated, skusCreated: result.drop.skusCreated },
+        };
+        state.eventLog.push(dropEvt);
+        state.eventsGenerated++;
+      }
     }
   }, baseIntervalMs);
 
@@ -254,6 +278,7 @@ function processChainQueue(): SimEvent[] {
 // Each tick, simClock advances so events can check "what time is it in Tokyo?"
 
 let simClock: Date = new Date();
+let lastCalendarCheckDay: string = ''; // tracks the last sim day we checked for calendar drops
 
 export function getSimClock(): Date { return new Date(simClock.getTime()); }
 
@@ -1795,6 +1820,10 @@ export function runSeedSimulation(days: number, storeInstance: Store): void {
   // Initialize sim clock to N days ago
   simClock = new Date(Date.now() - days * 86400000);
 
+  // Load season calendar for calendar-based drops during seeding
+  loadDefaultCalendar(store);
+  lastCalendarCheckDay = '';
+
   // ~45 seconds per tick, so ticks per day = 86400/45 ≈ 1920
   // Use ~80 ticks/day for seeding (enough to generate realistic data, fast enough to start quickly)
   const ticksPerDay = 80;
@@ -1807,6 +1836,13 @@ export function runSeedSimulation(days: number, storeInstance: Store): void {
   for (let tick = 0; tick < totalTicks; tick++) {
     // Advance clock
     simClock = new Date(simClock.getTime() + advancePerTick + (Math.random() - 0.5) * advancePerTick * 0.3);
+
+    // Check for calendar-based season drops (once per sim day)
+    const simDay = simClock.toISOString().slice(0, 10);
+    if (simDay !== lastCalendarCheckDay) {
+      lastCalendarCheckDay = simDay;
+      try { checkCalendarDrops(store, simClock); } catch { /* skip */ }
+    }
 
     // Generate events (we don't store the SimEvent log, just the store mutations)
     const batchSize = 3 + Math.floor(Math.random() * 6);

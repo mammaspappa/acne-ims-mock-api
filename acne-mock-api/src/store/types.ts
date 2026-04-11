@@ -461,3 +461,28 @@ export interface ModelRegistry {
   activatedAt: string | null;
   createdAt: string;
 }
+
+// ─── SEASON DROP ──────────────────────────────────────
+
+export interface SeasonDrop {
+  id: string;
+  season: Season;
+  seasonYear: number;
+  label: string;                     // e.g. "Spring/Summer 2027"
+  status: 'SCHEDULED' | 'EXECUTING' | 'COMPLETED' | 'FAILED';
+  triggeredBy: 'MANUAL' | 'CALENDAR' | 'SEED';
+  productsCreated: number;
+  skusCreated: number;
+  purchaseOrdersCreated: number;
+  inventoryAllocated: number;
+  executedAt: string | null;
+  createdAt: string;
+}
+
+export interface SeasonCalendarEntry {
+  season: Season;
+  seasonYear: number;
+  label: string;                     // e.g. "Spring/Summer 2027"
+  dropDate: string;                  // ISO date when drop should fire
+  enabled: boolean;
+}
