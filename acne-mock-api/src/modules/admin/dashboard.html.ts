@@ -137,11 +137,12 @@ export function getDashboardHtml(baseUrl: string): string {
           <option value="0">∞ continuous</option>
         </select>
         <label class="checkbox-wrap"><input type="checkbox" id="sim-auto-scenarios"> Auto Scenarios</label>
+        <input id="sim-start-date" type="datetime-local" style="padding:4px 8px; font-size:12px; border:1px solid #ddd; border-radius:4px" title="Simulation start date (defaults to now)">
         <input id="sim-phrase" type="password" placeholder="Passphrase" style="padding:4px 8px; font-size:12px; border:1px solid #ddd; border-radius:4px; width:200px">
         <button class="refresh-btn" onclick="toggleSim()" id="sim-btn">Start Simulation</button>
         <button class="refresh-btn" onclick="resetDatabase()" id="reset-btn" style="background:#dc2626;display:none">Reset Database</button>
       </div>
-      <div id="sim-log" style="max-height:250px; overflow-y:auto; font-size:12px; font-family:monospace; background:#f9f9f9; border:1px solid #eee; border-radius:6px; padding:8px"></div>
+      <div id="sim-log" style="max-height:500px; overflow-y:auto; font-size:12px; font-family:monospace; background:#f9f9f9; border:1px solid #eee; border-radius:6px; padding:8px"></div>
     </div>
 
     <div class="section" id="scenario-section">
@@ -185,6 +186,35 @@ export function getDashboardHtml(baseUrl: string): string {
       </div>
       <div id="scenario-catalog-wrap" style="display:none">
         <div id="scenario-catalog" class="scenario-catalog"></div>
+      </div>
+    </div>
+
+    <div class="section" id="season-section">
+      <h2>Season Drops</h2>
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px">
+        <div style="flex:1;min-width:320px">
+          <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Calendar</h3>
+          <div id="season-calendar" style="font-size:12px"></div>
+        </div>
+        <div style="flex:1;min-width:320px">
+          <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:8px">Drop History</h3>
+          <div id="season-drops" style="font-size:12px"></div>
+        </div>
+      </div>
+      <div class="scenario-toolbar">
+        <select id="drop-season" style="padding:5px 8px;font-size:12px;border:1px solid #ddd;border-radius:4px">
+          <option value="SS">SS — Spring/Summer</option>
+          <option value="AW">AW — Autumn/Winter</option>
+          <option value="RESORT">RESORT</option>
+          <option value="PRE_FALL">PRE_FALL</option>
+          <option value="CAPSULE">CAPSULE</option>
+        </select>
+        <input id="drop-year" type="number" min="2025" max="2035" value="2027" style="padding:5px 8px;font-size:12px;border:1px solid #ddd;border-radius:4px;width:80px">
+        <button class="refresh-btn" onclick="triggerSeasonDrop()">Drop Now</button>
+        <span style="color:#999;font-size:11px">or schedule:</span>
+        <input id="drop-date" type="date" style="padding:5px 8px;font-size:12px;border:1px solid #ddd;border-radius:4px">
+        <button class="refresh-btn" onclick="scheduleSeasonDrop()" style="background:#666">Add to Calendar</button>
+        <button class="refresh-btn" onclick="forceCalendarCheck()" style="background:#666">Check Calendar</button>
       </div>
     </div>
 
@@ -341,9 +371,13 @@ async function toggleSim() {
     const speed = parseInt(document.getElementById('sim-speed').value);
     const duration = parseInt(document.getElementById('sim-duration').value);
     const autoScenarios = document.getElementById('sim-auto-scenarios').checked;
+    const startDateVal = document.getElementById('sim-start-date').value;
+    const startDate = startDateVal ? new Date(startDateVal).toISOString() : undefined;
+    const body = { passphrase: phrase, durationHours: duration, speedMultiplier: speed, autoScenarios };
+    if (startDate) body.startDate = startDate;
     const res = await fetch(BASE + '/api/v1/admin/simulation/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passphrase: phrase, durationHours: duration, speedMultiplier: speed, autoScenarios }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) { alert(data.error || 'Failed to start'); return; }
@@ -359,10 +393,12 @@ async function resetDatabase() {
     const res = await fetch(BASE + '/api/v1/admin/reset', { method: 'POST' });
     const data = await res.json();
     if (!res.ok) { alert(data.error || 'Failed to reset'); return; }
+    document.getElementById('reset-btn').style.display = 'none';
+    document.getElementById('sim-log').innerHTML = '<span style="color:#999">Database reset. Start a new simulation.</span>';
     loadAll();
     loadMapLocations();
-    const state = await api('admin/simulation');
-    updateSimUI(state);
+    const simState = await api('admin/simulation');
+    updateSimUI(simState);
   } catch (e) { alert('Error: ' + e.message); }
 }
 
@@ -435,8 +471,11 @@ function updateSimUI(state) {
       const isChained = e.details?._chained;
       const chainMark = isChained ? '<span style="color:#c8937a;margin-right:3px" title="Chained event">↳</span>' : '';
       const bgStyle = isChained ? 'background:rgba(200,147,122,0.04);' : '';
+      const loc = e.details?.locationName || e.details?.warehouseName || e.details?.destination || e.details?.city || '';
+      const locTag = loc ? '<span style="color:#b8a89c;font-size:10px;margin-left:2px">' + loc + '</span> ' : '';
       return '<div style="margin-bottom:4px;border-bottom:1px solid #f0f0f0;padding-bottom:4px;' + bgStyle + '">' +
         '<span style="color:#999">' + time + '</span> ' +
+        locTag +
         chainMark +
         badge(e.system, color) + ' ' +
         '<span>' + e.summary + '</span></div>';
@@ -657,6 +696,111 @@ function toggleCatalog() {
 
 // Load scenario catalog on page load
 loadScenarioCatalog();
+
+// ─── Season Drops ───────────────────────────────────
+
+async function loadSeasonData() {
+  try {
+    const [calRes, dropsRes] = await Promise.all([
+      api('admin/season-calendar'),
+      api('admin/season-drops'),
+    ]);
+
+    // Calendar
+    const cal = calRes.calendar || [];
+    const calEl = document.getElementById('season-calendar');
+    if (cal.length === 0) {
+      calEl.innerHTML = '<span style="color:#999">No calendar entries</span>';
+    } else {
+      calEl.innerHTML = '<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr>' +
+        '<th style="text-align:left;padding:4px 8px;color:#999;font-size:10px;text-transform:uppercase">Season</th>' +
+        '<th style="text-align:left;padding:4px 8px;color:#999;font-size:10px;text-transform:uppercase">Drop Date</th>' +
+        '<th style="text-align:left;padding:4px 8px;color:#999;font-size:10px;text-transform:uppercase">Status</th>' +
+        '</tr></thead><tbody>' +
+        cal.map(e => {
+          const isPast = new Date(e.dropDate) < new Date();
+          const statusBdg = e.dropped ? badge('DROPPED', 'green') : isPast ? badge('OVERDUE', 'amber') : badge('SCHEDULED', 'gray');
+          return '<tr style="border-bottom:1px solid #f0f0f0">' +
+            '<td style="padding:4px 8px;font-weight:600">' + e.label + '</td>' +
+            '<td style="padding:4px 8px">' + e.dropDate + '</td>' +
+            '<td style="padding:4px 8px">' + statusBdg + '</td></tr>';
+        }).join('') +
+        '</tbody></table>';
+    }
+
+    // Drop history
+    const drops = dropsRes.drops || [];
+    const dropsEl = document.getElementById('season-drops');
+    if (drops.length === 0) {
+      dropsEl.innerHTML = '<span style="color:#999">No drops executed yet</span>';
+    } else {
+      dropsEl.innerHTML = drops.map(d => {
+        const statusColor = d.status === 'COMPLETED' ? 'green' : d.status === 'FAILED' ? 'red' : 'amber';
+        return '<div class="alert-row">' +
+          badge(d.status, statusColor) + ' ' +
+          '<strong>' + d.label + '</strong> ' +
+          badge(d.triggeredBy, 'gray') +
+          ' <span class="desc">' + d.productsCreated + ' products, ' + d.skusCreated + ' SKUs, ' + d.purchaseOrdersCreated + ' POs</span>' +
+          '</div>';
+      }).join('');
+    }
+  } catch (e) { console.error('Season data load error', e); }
+}
+
+async function triggerSeasonDrop() {
+  const phrase = getPassphrase();
+  if (!phrase) { alert('Enter the simulation passphrase first'); return; }
+  const season = document.getElementById('drop-season').value;
+  const seasonYear = parseInt(document.getElementById('drop-year').value);
+  if (!confirm('Drop ' + season + ' ' + seasonYear + ' collection? This creates new products, SKUs, and POs.')) return;
+
+  try {
+    const res = await fetch(BASE + '/api/v1/admin/season-drop', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: phrase, season, seasonYear }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Failed'); return; }
+    loadSeasonData();
+    loadAll();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function scheduleSeasonDrop() {
+  const phrase = getPassphrase();
+  if (!phrase) { alert('Enter the simulation passphrase first'); return; }
+  const season = document.getElementById('drop-season').value;
+  const seasonYear = parseInt(document.getElementById('drop-year').value);
+  const dropDate = document.getElementById('drop-date').value;
+  if (!dropDate) { alert('Pick a date for the scheduled drop'); return; }
+
+  try {
+    const res = await fetch(BASE + '/api/v1/admin/season-calendar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: phrase, season, seasonYear, dropDate }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Failed'); return; }
+    loadSeasonData();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function forceCalendarCheck() {
+  const phrase = getPassphrase();
+  if (!phrase) { alert('Enter the simulation passphrase first'); return; }
+  try {
+    const res = await fetch(BASE + '/api/v1/admin/season-calendar/check', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase: phrase }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Failed'); return; }
+    loadSeasonData();
+    if (data.drops && data.drops.length > 0) loadAll();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+loadSeasonData();
 
 // ─── World Map (OpenLayers) ──────────────────────────
 

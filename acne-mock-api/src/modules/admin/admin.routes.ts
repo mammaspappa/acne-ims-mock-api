@@ -102,18 +102,19 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
           durationHours: { type: 'number', default: 8, minimum: 0, maximum: 720, description: '0 = continuous (runs until manually stopped)' },
           speedMultiplier: { type: 'number', default: 1, minimum: 1, maximum: 1000, description: '1 = real-time, 100 = fast stream, 1000 = max speed' },
           autoScenarios: { type: 'boolean', default: false, description: 'Auto-trigger random scenarios at random intervals' },
+          startDate: { type: 'string', description: 'ISO datetime to start sim clock from (defaults to now)' },
         },
       },
     },
-  }, async (request: FastifyRequest<{ Body: { passphrase: string; durationHours?: number; speedMultiplier?: number; autoScenarios?: boolean } }>, reply: FastifyReply) => {
-    const { passphrase, durationHours = 8, speedMultiplier = 1, autoScenarios = false } = request.body;
+  }, async (request: FastifyRequest<{ Body: { passphrase: string; durationHours?: number; speedMultiplier?: number; autoScenarios?: boolean; startDate?: string } }>, reply: FastifyReply) => {
+    const { passphrase, durationHours = 8, speedMultiplier = 1, autoScenarios = false, startDate } = request.body;
 
     if (!validatePassphrase(passphrase)) {
       return reply.status(403).send({ error: 'Invalid passphrase', hint: 'The passphrase is documented in the API reference.' });
     }
 
     const effectiveDuration = durationHours === 0 ? 87600 : durationHours; // 0 = 10 years (effectively infinite)
-    const started = await startSimulation(effectiveDuration, speedMultiplier, autoScenarios);
+    const started = await startSimulation(effectiveDuration, speedMultiplier, autoScenarios, startDate);
     if (!started) {
       return reply.status(409).send({ error: 'Simulation already running', state: getSimulationState() });
     }

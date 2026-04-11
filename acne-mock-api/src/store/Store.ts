@@ -10,6 +10,11 @@ import type {
 import { seedAll } from './seed/index.js';
 import { resetSequences } from '../utils/number-sequence.js';
 import { setMockNow } from '../utils/date.js';
+import { readFileSync, writeFileSync, statSync, readdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export class Store {
   users: User[] = [];
@@ -49,9 +54,54 @@ export class Store {
   seed(): void {
     resetSequences();
     setMockNow(null);
+
+    const cacheFile = join(__dirname, '..', '..', 'seed-cache.json');
+
+    // Check if cache exists and is newer than all source files
+    if (this._isCacheValid(cacheFile)) {
+      try {
+        const cached = JSON.parse(readFileSync(cacheFile, 'utf-8'));
+        this._deserialize(cached);
+        this._snapshot = JSON.stringify(cached);
+        this._buildIndexes();
+        return;
+      } catch { /* fall through to full seed */ }
+    }
+
+    // Full seed simulation
     seedAll(this);
     this._snapshot = JSON.stringify(this._serialize());
     this._buildIndexes();
+
+    // Save cache for next startup
+    try {
+      writeFileSync(cacheFile, this._snapshot);
+    } catch { /* ignore write errors */ }
+  }
+
+  private _isCacheValid(cacheFile: string): boolean {
+    try {
+      const cacheStat = statSync(cacheFile);
+      const cacheTime = cacheStat.mtimeMs;
+
+      // Check if any source files are newer than cache
+      const srcDirs = [
+        join(__dirname, 'seed'),
+        join(__dirname, 'data'),
+        join(__dirname, '..', 'modules', 'admin'),
+      ];
+      for (const dir of srcDirs) {
+        try {
+          for (const file of readdirSync(dir)) {
+            const fileStat = statSync(join(dir, file));
+            if (fileStat.mtimeMs > cacheTime) return false;
+          }
+        } catch { /* dir doesn't exist, skip */ }
+      }
+      return true;
+    } catch {
+      return false; // cache doesn't exist
+    }
   }
 
   reset(): void {

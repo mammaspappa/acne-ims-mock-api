@@ -347,6 +347,30 @@ export const SCENARIO_CATALOG: ScenarioCatalogEntry[] = [
     defaultSeverity: 'HIGH',
     configurableParams: ['season', 'seasonYear', 'severity', 'durationMinutes'],
   },
+
+  // ── Sizing Issues ─────────────────────────────────
+  {
+    id: 'SIZING_DEFECT',
+    name: 'Sizing Defect (Runs Wrong)',
+    description: 'A product batch has incorrect sizing — garments run too large or too small compared to the size chart, causing a wave of online returns with "wrong size" as the reason.',
+    category: 'QUALITY',
+    affects: 'E-commerce returns, customer service, inventory, finance, brand reputation',
+    exampleTrigger: 'New denim fit runs 2 sizes too small — customers ordering their usual size receive garments that don\'t fit',
+    defaultDurationMinutes: 20160, // 2 weeks
+    defaultSeverity: 'HIGH',
+    configurableParams: ['productId', 'severity', 'durationMinutes'],
+  },
+  {
+    id: 'SIZE_CURVE_ERROR',
+    name: 'Size Curve Ordering Error',
+    description: 'A buying error applied the wrong size curve to a purchase order — too many XS/XL and not enough M/L. Core sizes sell out while extremes sit unsold.',
+    category: 'SUPPLY',
+    affects: 'Inventory allocation, lost sales, markdown pressure, planning, wholesale',
+    exampleTrigger: 'AW26 knitwear PO used menswear size curve for womenswear — size S/M sold out in 3 days, XL overstock at 20 weeks cover',
+    defaultDurationMinutes: 43200, // 1 month
+    defaultSeverity: 'HIGH',
+    configurableParams: ['productId', 'category', 'severity', 'durationMinutes'],
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -394,6 +418,8 @@ export function activateScenario(scenarioId: string, params: Record<string, unkn
     CYBER_INCIDENT: makeCyberIncident,
     WEATHER_ANOMALY: makeWeatherAnomaly,
     SEASON_LAUNCH: makeSeasonLaunch,
+    SIZING_DEFECT: makeSizingDefect,
+    SIZE_CURVE_ERROR: makeSizeCurveError,
   };
 
   const maker = makers[scenarioId];
@@ -1786,6 +1812,187 @@ function makeSeasonLaunch(base: Omit<ActiveScenarioInternal, 'generateTick'>, pa
         events.push(sEvt('Marketing', 'SOCIAL_BUZZ',
           `${platform}: ${label} launch content — ${engagement}K engagements, ${product.name} featured in ${3 + Math.floor(Math.random() * 10)} creator posts`,
           null, { platform, engagement, productName: product.name, season, seasonYear }, ctx));
+      }
+
+      this.eventsGenerated += events.length;
+      return events;
+    },
+  };
+}
+
+
+// ─── 20. SIZING DEFECT ───────────────────────────────────
+// A product runs wrong — causes a wave of "wrong size" returns.
+
+function makeSizingDefect(base: Omit<ActiveScenarioInternal, 'generateTick'>, params: Record<string, unknown>): ActiveScenarioInternal {
+  const product = params.productId
+    ? (store.products.find(p => p.id === params.productId) || rProduct())
+    : rProduct();
+  const skus = skusFor(product.id);
+  const direction = faker.helpers.arrayElement(['too_small', 'too_large']);
+  const mult = sevMult(base.severity);
+
+  base.name = `Sizing Defect: ${product.name} runs ${direction.replace('_', ' ')}`;
+  base.context = { productId: product.id, productName: product.name, defect: direction, styleNumber: product.styleNumber };
+  const ctx = { id: base.instanceId, name: base.name };
+
+  return {
+    ...base,
+    generateTick() {
+      const events: SimEvent[] = [];
+
+      // Online returns (high frequency)
+      if (chance(55 * mult)) {
+        const sku = skus.length > 0 ? faker.helpers.arrayElement(skus) : null;
+        if (sku) {
+          const customer = faker.person.fullName();
+          const wrongNote = direction === 'too_small'
+            ? `ordered ${sku.size}, need ${faker.helpers.arrayElement(['one size up', 'two sizes up'])}`
+            : `ordered ${sku.size}, need ${faker.helpers.arrayElement(['one size down', 'two sizes down'])}`;
+          events.push(sEvt('SFCC', 'ECOMMERCE_RETURN',
+            `Online return: ${customer} — ${product.name} (${sku.colour}, ${sku.size}) — "runs ${direction.replace('_', ' ')}, ${wrongNote}"`,
+            product.id, { customerName: customer, productName: product.name, size: sku.size, reason: 'wrong_size', defect: direction }, ctx));
+        }
+      }
+
+      // CS complaints surge
+      if (chance(40 * mult)) {
+        const customer = faker.person.fullName();
+        const channel = faker.helpers.arrayElement(['email', 'live_chat', 'phone', 'instagram_dm']);
+        events.push(sEvt('Customer Service', 'SIZING_COMPLAINT',
+          `CS ticket (${channel}): ${customer} — "${product.name} size chart is wrong, runs ${direction.replace('_', ' ')}. Very disappointed"`,
+          null, { customerName: customer, productName: product.name, channel, defect: direction }, ctx));
+      }
+
+      // Social media complaints
+      if (chance(20 * mult)) {
+        const platform = faker.helpers.arrayElement(['Instagram', 'TikTok', 'X/Twitter']);
+        events.push(sEvt('CRM', 'SOCIAL_COMPLAINT',
+          `Negative post on ${platform}: "${product.name} sizing is way off — ordered my usual ${faker.helpers.arrayElement(['S', 'M', 'L'])} and it's ${direction === 'too_small' ? 'tiny' : 'huge'}" — ${100 + Math.floor(Math.random() * 2000)} engagements`,
+          product.id, { platform, productName: product.name, defect: direction }, ctx));
+      }
+
+      // Exchange requests
+      if (chance(30 * mult)) {
+        const fromSize = faker.helpers.arrayElement(['S', 'M', 'L']);
+        const toSize = direction === 'too_small'
+          ? faker.helpers.arrayElement(['L', 'XL'])
+          : faker.helpers.arrayElement(['XS', 'S']);
+        events.push(sEvt('Customer Service', 'EXCHANGE_REQUEST',
+          `Exchange request: ${product.name} — ${fromSize} → ${toSize} (runs ${direction.replace('_', ' ')})`,
+          product.id, { productName: product.name, fromSize, toSize, defect: direction }, ctx));
+      }
+
+      // PLM investigation
+      if (chance(8 * mult)) {
+        events.push(sEvt('Centric PLM', 'SIZING_INVESTIGATION',
+          `QA sizing investigation: ${product.name} — spec sheet vs production measurements show ${direction === 'too_small' ? '+2cm' : '-2cm'} deviation across all sizes. Supplier notified`,
+          product.id, { productName: product.name, defect: direction }, ctx));
+      }
+
+      // Financial impact
+      if (chance(10 * mult)) {
+        const returnRate = 25 + Math.floor(Math.random() * 30);
+        const refundCost = (10000 + Math.floor(Math.random() * 50000)).toLocaleString();
+        events.push(sEvt('D365 ERP', 'RETURN_COST_IMPACT',
+          `Sizing defect impact: ${product.name} — return rate ${returnRate}% (normal: 8%), estimated cost: SEK ${refundCost}`,
+          product.id, { productName: product.name, returnRate, refundCost }, ctx));
+      }
+
+      this.eventsGenerated += events.length;
+      return events;
+    },
+  };
+}
+
+
+// ─── 21. SIZE CURVE ERROR ────────────────────────────────
+// Wrong size curve on PO — core sizes sell out, extremes overstock.
+
+function makeSizeCurveError(base: Omit<ActiveScenarioInternal, 'generateTick'>, params: Record<string, unknown>): ActiveScenarioInternal {
+  const category = (params.category as string) || faker.helpers.arrayElement(['Knitwear', 'Outerwear', 'T-shirts', 'Denim']);
+  const categoryProducts = store.products.filter(p => p.category === category);
+  const product = params.productId
+    ? (store.products.find(p => p.id === params.productId) || (categoryProducts[0] || rProduct()))
+    : (categoryProducts.length > 0 ? faker.helpers.arrayElement(categoryProducts) : rProduct());
+  const skus = skusFor(product.id);
+  const mult = sevMult(base.severity);
+  const coreSizes = ['S', 'M', 'L', '29', '30', '31', '39', '40', '41', '42'];
+
+  base.name = `Size Curve Error: ${product.name} (${category})`;
+  base.context = { productId: product.id, productName: product.name, category, styleNumber: product.styleNumber };
+  const ctx = { id: base.instanceId, name: base.name };
+
+  return {
+    ...base,
+    generateTick() {
+      const events: SimEvent[] = [];
+
+      // Core sizes selling out → stockout alerts + stock depletion
+      if (chance(40 * mult)) {
+        const coreSkus = skus.filter(s => coreSizes.includes(s.size));
+        if (coreSkus.length > 0) {
+          const sku = faker.helpers.arrayElement(coreSkus);
+          const loc = rStore();
+          const sold = depleteStock(sku.id, loc.id, 1 + Math.floor(Math.random() * 2));
+          if (sold > 0) {
+            events.push(sEvt('AI Intelligence', 'STOCKOUT_ALERT',
+              `Size curve imbalance: ${product.name} (${sku.size}) sold out at ${loc.name} — core size demand exceeds allocation`,
+              loc.id, { productName: product.name, size: sku.size, locationName: loc.name }, ctx));
+          }
+        }
+      }
+
+      // Back-in-stock requests for core sizes
+      if (chance(35 * mult)) {
+        const size = faker.helpers.arrayElement(['S', 'M', 'L']);
+        const count = 5 + Math.floor(Math.random() * 30);
+        events.push(sEvt('SFCC', 'BACK_IN_STOCK_SURGE',
+          `${count} back-in-stock requests for ${product.name} size ${size} — core sizes depleted by curve error`,
+          product.id, { productName: product.name, size, count }, ctx));
+      }
+
+      // Extreme sizes overstock alerts
+      if (chance(25 * mult)) {
+        const size = faker.helpers.arrayElement(['XS', 'XL', 'XXL']);
+        const weeksOfCover = 15 + Math.floor(Math.random() * 15);
+        events.push(sEvt('AI Intelligence', 'OVERSTOCK_ALERT',
+          `Overstock: ${product.name} size ${size} — ${weeksOfCover} weeks of cover (target: 6). Too many extreme sizes ordered`,
+          product.id, { productName: product.name, size, weeksOfCover }, ctx));
+      }
+
+      // Markdown pressure on extreme sizes
+      if (chance(15 * mult)) {
+        const size = faker.helpers.arrayElement(['XS', 'XL']);
+        const discount = 20 + Math.floor(Math.random() * 20);
+        events.push(sEvt('AI Intelligence', 'MARKDOWN_RECOMMENDATION',
+          `Markdown: ${product.name} size ${size} — suggest ${discount}% reduction to clear overstock`,
+          product.id, { productName: product.name, size, discount }, ctx));
+      }
+
+      // Lost revenue from core stockouts
+      if (chance(12 * mult)) {
+        const lostUnits = 10 + Math.floor(Math.random() * 30);
+        const lostRevenue = Math.round(lostUnits * product.costPrice * 3.5).toLocaleString();
+        events.push(sEvt('D365 ERP', 'LOST_SALES',
+          `Lost sales: ${product.name} — ~${lostUnits} units of S/M/L unfulfilled. Revenue impact: SEK ${lostRevenue}`,
+          product.id, { productName: product.name, lostUnits, lostRevenue }, ctx));
+      }
+
+      // Wholesale partner complaints
+      if (chance(10 * mult)) {
+        const buyer = faker.helpers.arrayElement(['Nordstrom', 'Selfridges', 'Galeries Lafayette', 'Isetan']);
+        events.push(sEvt('NuORDER', 'WHOLESALE_COMPLAINT',
+          `${buyer}: "${product.name} size ${faker.helpers.arrayElement(['S', 'M'])} sold out in 3 days but we have 6 weeks of ${faker.helpers.arrayElement(['XS', 'XL'])} — rebalance needed"`,
+          null, { buyer, productName: product.name }, ctx));
+      }
+
+      // Emergency reorder for core sizes
+      if (chance(8 * mult)) {
+        const supplier = store.suppliers[Math.floor(Math.random() * store.suppliers.length)];
+        events.push(sEvt('Supply Chain', 'EMERGENCY_REORDER',
+          `Emergency reorder: ${product.name} sizes S/M/L — expedite from ${supplier?.name || '?'}. Air freight recommended`,
+          product.id, { productName: product.name, supplierName: supplier?.name }, ctx));
       }
 
       this.eventsGenerated += events.length;

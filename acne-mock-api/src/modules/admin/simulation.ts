@@ -65,7 +65,7 @@ export function getSimulationState() {
     autoScenarios: state.autoScenarios,
     activeScenarios: getActiveScenarios().filter(s => s.status === 'ACTIVE').length,
     simClock: simClock.toISOString(),
-    recentEvents: state.eventLog.slice(-20),
+    recentEvents: state.eventLog.slice(-50),
   };
 }
 
@@ -83,7 +83,7 @@ export function validatePassphrase(phrase: string): boolean {
   return phrase === PASSPHRASE;
 }
 
-export async function startSimulation(durationHours = 8, speedMultiplier = 1, autoScenarios = false): Promise<boolean> {
+export async function startSimulation(durationHours = 8, speedMultiplier = 1, autoScenarios = false, startDate?: string): Promise<boolean> {
   if (state.running) return false;
   // Resolve store on first runtime use if not yet set
   if (!store) {
@@ -101,8 +101,8 @@ export async function startSimulation(durationHours = 8, speedMultiplier = 1, au
   // Schedule first auto-scenario 2-8 hours of sim time after start
   state.nextAutoScenarioSimTime = autoScenarios ? simClock.getTime() + (7200000 + Math.random() * 21600000) : null;
 
-  // Initialize simulated clock to current time (or mock time if time-traveled)
-  simClock = now();
+  // Initialize simulated clock to start date, current time, or mock time
+  simClock = startDate ? new Date(startDate) : now();
   lastCalendarCheckDay = '';
   loadDefaultCalendar(store);
 
@@ -413,6 +413,33 @@ function evt(system: string, type: string, summary: string, entityId: string | n
   return { id: generateId(), timestamp: simClock.toISOString(), system, type, summary, entityId, details };
 }
 
+// Size distribution curves — bell curve centered on medium sizes
+const SIZE_WEIGHTS: Record<string, number> = {
+  // Clothing
+  'XS': 0.08, 'S': 0.20, 'M': 0.30, 'L': 0.25, 'XL': 0.12, 'XXL': 0.05,
+  // Denim waist + Footwear EU (overlapping sizes get blended weight)
+  '24': 0.03, '25': 0.06, '26': 0.10, '27': 0.14, '28': 0.16, '29': 0.14,
+  '30': 0.12, '31': 0.10, '32': 0.07, '33': 0.04, '34': 0.02,
+  '36': 0.04, '37': 0.07, '38': 0.10, '39': 0.13, '40': 0.15,
+  '41': 0.15, '42': 0.14, '43': 0.10, '44': 0.07, '45': 0.05,
+  // One size
+  'OS': 1.0,
+};
+
+function weightedSku(productId: string): ReturnType<typeof randomSku> {
+  const skus = store.skus.filter(s => s.productId === productId);
+  if (skus.length <= 1) return skus[0] || randomSku();
+
+  const weighted = skus.map(s => ({ s, w: SIZE_WEIGHTS[s.size] || 0.1 }));
+  const total = weighted.reduce((sum, x) => sum + x.w, 0);
+  let roll = Math.random() * total;
+  for (const { s, w } of weighted) {
+    roll -= w;
+    if (roll <= 0) return s;
+  }
+  return skus[0];
+}
+
 // Season-aware product selection — products in the current season sell more
 function seasonalProduct(): ReturnType<typeof randomProduct> {
   const month = simClock.getMonth() + 1; // 1-12
@@ -530,9 +557,15 @@ function timeWeightMultiplier(fn: Gen): number {
     return anyWarehouseActive ? 1.0 : 0.1;
   }
 
-  // B2B/wholesale/PLM/finance/POs: office hours (EU-centric HQ), zero on weekends
-  if (fn === genWholesaleActivity || fn === genMediusInvoice || fn === genCentricPlmEvent || fn === genD365Event || fn === genPOCreate || fn === genPOLifecycle || fn === genMatchingRun || fn === genForecastUpdate) {
-    if (isWeekend()) return 0.02; // near-zero on weekends
+  // B2B/wholesale: mostly office hours but some async activity
+  if (fn === genWholesaleActivity) {
+    if (isWeekend()) return 0.15; // buyers browse on weekends too
+    return isOfficeHours('Europe/Stockholm') ? 1.0 : 0.2;
+  }
+
+  // PLM/finance/POs: strictly office hours, zero on weekends
+  if (fn === genMediusInvoice || fn === genCentricPlmEvent || fn === genD365Event || fn === genPOCreate || fn === genPOLifecycle || fn === genMatchingRun || fn === genForecastUpdate) {
+    if (isWeekend()) return 0.02;
     return isOfficeHours('Europe/Stockholm') ? 1.0 : 0.05;
   }
 
@@ -662,12 +695,9 @@ function genEcomOrder(): SimEvent {
   const currency = countryToCurrency[country] || 'EUR';
   const customer = { name: faker.person.fullName(), email: faker.internet.email(), city: faker.location.city(), country };
   const itemCount = 1 + Math.floor(Math.random() * 3);
-  // Pick SKUs from seasonal products
+  // Pick SKUs from seasonal products with realistic size distribution
   const selectedProducts = Array.from({ length: itemCount }, () => seasonalProduct());
-  const skus = selectedProducts.map(p => {
-    const pSkus = store.skus.filter(s => s.productId === p.id);
-    return pSkus.length > 0 ? pSkus[Math.floor(Math.random() * pSkus.length)] : store.skus[Math.floor(Math.random() * store.skus.length)];
-  });
+  const skus = selectedProducts.map(p => weightedSku(p.id));
   const ecomUser = store.users.find(u => u.role === 'ECOM')!;
 
   let subtotal = 0;
@@ -757,8 +787,8 @@ function genEcomOrder(): SimEvent {
 }
 
 function genCartAbandonment(): SimEvent {
-  const sku = randomSku();
-  const product = productForSku(sku);
+  const product = seasonalProduct();
+  const sku = weightedSku(product.id);
   const customer = faker.person.fullName();
   const page = faker.helpers.arrayElement(['product_page', 'cart', 'checkout_shipping', 'checkout_payment']);
   return evt('SFCC', 'CART_ABANDONED', `Cart abandoned by ${customer} at ${page.replace(/_/g, ' ')} — ${product?.name || '?'} (${sku.colour}, ${sku.size})`, null,
@@ -768,8 +798,8 @@ function genCartAbandonment(): SimEvent {
 function genRetailSale(): SimEvent {
   const loc = randomStore();
   if (!isStoreOpen(loc.timezone)) return genEcomOrder(); // fallback to ecom if store closed
-  const sku = randomSku();
-  const product = productForSku(sku);
+  const product = seasonalProduct();
+  const sku = weightedSku(product.id);
   const qty = 1;
   // Safely decrement stock + log movement
   const sl = store.stockLevels.find(s => s.skuId === sku.id && s.locationId === loc.id);
@@ -788,7 +818,7 @@ function genRetailSale(): SimEvent {
   // +0-1 min: Adyen payment processed
   if (payment !== 'cash') {
     queueChain(Math.random(), 'Adyen', 'PAYMENT_AUTHORIZED',
-      `POS payment: ${loc.countryCode === 'SE' ? 'SEK' : 'EUR'} ${sku.retailPrice} via ${payment} at ${loc.name} (${pspRef})`,
+      `POS payment: ${countryToCurrency[loc.countryCode] || 'EUR'} ${Math.round(sku.retailPrice * (sekToLocal[countryToCurrency[loc.countryCode] || 'EUR'] || 0.088))} via ${payment} at ${loc.name} (${pspRef})`,
       loc.id, { locationName: loc.name, method: payment, amount: sku.retailPrice, pspRef });
   }
 
@@ -811,8 +841,8 @@ function genRetailSale(): SimEvent {
 function genRetailReturn(): SimEvent {
   const loc = randomStore();
   if (!isStoreOpen(loc.timezone)) return genCartAbandonment(); // fallback
-  const sku = randomSku();
-  const product = productForSku(sku);
+  const product = seasonalProduct();
+  const sku = weightedSku(product.id);
   const reason = faker.helpers.arrayElement(['wrong_size', 'changed_mind', 'defective', 'colour_mismatch', 'gift_return', 'not_as_expected']);
   const refundMethod = faker.helpers.arrayElement(['original_payment', 'store_credit', 'exchange']);
   // Add stock back + log movement
@@ -902,49 +932,140 @@ function genClientelingOrder(): SimEvent {
   return evt('Teamwork POS', 'CLIENTELING', text!, loc.id, { vicName, locationName: loc.name, action, productName: product?.name });
 }
 
+// Wholesale buyers with region/currency data
+const WHOLESALE_BUYERS = [
+  { name: 'Nordstrom', city: 'Seattle', country: 'US', currency: 'USD' },
+  { name: 'Selfridges', city: 'London', country: 'GB', currency: 'GBP' },
+  { name: 'Le Bon Marché', city: 'Paris', country: 'FR', currency: 'EUR' },
+  { name: 'Isetan', city: 'Tokyo', country: 'JP', currency: 'JPY' },
+  { name: 'Lane Crawford', city: 'Hong Kong', country: 'HK', currency: 'HKD' },
+  { name: 'KaDeWe', city: 'Berlin', country: 'DE', currency: 'EUR' },
+  { name: 'NK Stockholm', city: 'Stockholm', country: 'SE', currency: 'SEK' },
+  { name: 'Galeries Lafayette', city: 'Paris', country: 'FR', currency: 'EUR' },
+  { name: 'Rinascente', city: 'Milan', country: 'IT', currency: 'EUR' },
+  { name: 'Ssense', city: 'Montreal', country: 'CA', currency: 'CAD' },
+  { name: 'Mr Porter', city: 'London', country: 'GB', currency: 'GBP' },
+  { name: 'Net-a-Porter', city: 'London', country: 'GB', currency: 'GBP' },
+  { name: 'Mytheresa', city: 'Munich', country: 'DE', currency: 'EUR' },
+  { name: 'MATCHESFASHION', city: 'London', country: 'GB', currency: 'GBP' },
+  { name: 'Holt Renfrew', city: 'Toronto', country: 'CA', currency: 'CAD' },
+];
+
 function genWholesaleActivity(): SimEvent {
-  const buyers = ['Nordstrom', 'Selfridges', 'Le Bon Marché', 'Isetan', 'Lane Crawford', 'KaDeWe', 'NK Stockholm', 'Galeries Lafayette', 'Rinascente', 'Ssense', 'Mr Porter'];
-  const buyer = faker.helpers.arrayElement(buyers);
-  const product = randomProduct();
-  const action = faker.helpers.arrayElement(['viewed_line_sheet', 'added_to_order', 'requested_samples', 'price_inquiry', 'confirmed_order', 'requested_delivery_change', 'cancelled_line', 'approved_proforma']);
+  const buyerData = faker.helpers.arrayElement(WHOLESALE_BUYERS);
+  const buyer = buyerData.name;
+  const product = seasonalProduct();
+
+  // Wholesale buyers order the NEXT season (months ahead)
+  const month = simClock.getMonth() + 1;
+  const orderingSeason = (month >= 1 && month <= 6) ? 'AW' : 'SS';
+  const orderingYear = (month >= 1 && month <= 6) ? simClock.getFullYear() : simClock.getFullYear() + 1;
+  const seasonLabel = `${orderingSeason}${orderingYear}`;
+
+  const action = faker.helpers.arrayElement(['viewed_line_sheet', 'added_to_order', 'requested_samples', 'price_inquiry', 'confirmed_order', 'confirmed_order', 'requested_delivery_change', 'cancelled_line', 'approved_proforma']);
   const text = {
-    viewed_line_sheet: `${buyer} viewed AW2026 line sheet (${2 + Math.floor(Math.random() * 15)} min session)`,
-    added_to_order: `${buyer} added ${product.name} (${5 + Math.floor(Math.random() * 30)} units) to draft order`,
-    requested_samples: `${buyer} requested salesman samples: ${product.name} — ship to ${faker.location.city()}`,
+    viewed_line_sheet: `${buyer} viewed ${seasonLabel} line sheet (${2 + Math.floor(Math.random() * 15)} min session)`,
+    added_to_order: `${buyer} added ${product.name} (${5 + Math.floor(Math.random() * 30)} units) to ${seasonLabel} draft order`,
+    requested_samples: `${buyer} requested salesman samples: ${product.name} — ship to ${buyerData.city}`,
     price_inquiry: `${buyer} inquired about volume pricing for ${product.name} (${50 + Math.floor(Math.random() * 200)}+ units)`,
-    confirmed_order: `${buyer} confirmed AW2026 order — ${8 + Math.floor(Math.random() * 25)} styles, ${faker.helpers.arrayElement(['EUR', 'USD', 'GBP'])} ${(50000 + Math.floor(Math.random() * 300000)).toLocaleString()}`,
-    requested_delivery_change: `${buyer} requested delivery date change for order — new date: ${faker.date.future().toISOString().split('T')[0]}`,
-    cancelled_line: `${buyer} cancelled ${product.name} from draft order — reason: ${faker.helpers.arrayElement(['budget constraint', 'category overlap', 'late delivery concern'])}`,
-    approved_proforma: `${buyer} approved proforma invoice for pending order`,
+    confirmed_order: `${buyer} confirmed ${seasonLabel} order`,
+    requested_delivery_change: `${buyer} requested delivery date change for ${seasonLabel} order`,
+    cancelled_line: `${buyer} cancelled ${product.name} from ${seasonLabel} draft — reason: ${faker.helpers.arrayElement(['budget constraint', 'category overlap', 'late delivery concern'])}`,
+    approved_proforma: `${buyer} approved proforma invoice for ${seasonLabel} order`,
   }[action];
-  // ── Chain: Wholesale Confirmed → OMS → WMS pick → Carrier → Invoice ──
+
+  // ── Confirmed: create actual wholesale SO with wholesale pricing ──
   if (action === 'confirmed_order') {
+    const wholesaleUser = store.users.find(u => u.role === 'WHOLESALE') || systemUser();
+    const soId = generateId();
+    const soNumber = `SO-WH-SIM-${generateId().slice(0, 6).toUpperCase()}`;
     const wh = randomWarehouse();
-    const styles = 8 + Math.floor(Math.random() * 25);
-    const carrier = faker.helpers.arrayElement(['DHL Express', 'FedEx', 'DB Schenker']);
 
-    // +2-8 hours: Teamwork OMS processes wholesale order
-    queueChain(120 + Math.random() * 360, 'Teamwork Commerce', 'WHOLESALE_ORDER_PROCESSED',
-      `Wholesale order from ${buyer} processed — ${styles} styles allocated from ${wh.name}`,
-      null, { buyer, warehouseName: wh.name, styles });
+    // Pick 5-15 seasonal styles, 5-30 units each, at wholesale price
+    const styleCount = 5 + Math.floor(Math.random() * 11);
+    const seasonProducts = store.products.filter(p =>
+      p.season === orderingSeason as any || p.isCarryOver
+    );
+    const selectedProducts = [];
+    for (let i = 0; i < styleCount && seasonProducts.length > 0; i++) {
+      selectedProducts.push(seasonProducts.splice(Math.floor(Math.random() * seasonProducts.length), 1)[0]);
+    }
 
-    // +1-3 days: WMS pick task for wholesale bulk order
-    queueChain(1440 + Math.random() * 2880, 'Blue Yonder WMS', 'WHOLESALE_PICK',
-      `Wholesale pick task at ${wh.name} for ${buyer} — ${styles} styles, bulk palletization`,
-      wh.id, { buyer, warehouseName: wh.name, styles });
+    let subtotal = 0;
+    const soLines: SOLine[] = [];
+    const fxRate = sekToLocal[buyerData.currency] || sekToLocal['EUR'] || 0.088;
 
-    // +2-5 days: Carrier dispatch
-    queueChain(2880 + Math.random() * 4320, 'Carrier', 'WHOLESALE_SHIPMENT',
-      `${carrier}: Wholesale shipment for ${buyer} dispatched from ${wh.name} — ${Math.floor(Math.random() * 5) + 1} pallets`,
-      wh.id, { buyer, carrier, warehouseName: wh.name });
+    for (const p of selectedProducts) {
+      const pSkus = store.skus.filter(s => s.productId === p.id);
+      if (pSkus.length === 0) continue;
+      const sku = pSkus[Math.floor(Math.random() * pSkus.length)];
+      const qty = 5 + Math.floor(Math.random() * 26);
+      const unitPrice = Math.round(sku.wholesalePrice * fxRate);
+      const lineTotal = qty * unitPrice;
+      subtotal += lineTotal;
+      soLines.push({
+        id: generateId(), salesOrderId: soId, skuId: sku.id,
+        quantityOrdered: qty, quantityAllocated: 0, quantityShipped: 0, quantityReturned: 0,
+        unitPrice, discountPercent: 0, lineTotal,
+        notes: null, createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
+      });
+    }
 
-    // +3-7 days: Medius invoice created
-    queueChain(4320 + Math.random() * 5760, 'Medius AP', 'WHOLESALE_INVOICE',
-      `Wholesale invoice generated for ${buyer} — ${faker.helpers.arrayElement(['EUR', 'USD', 'GBP'])} ${(50000 + Math.floor(Math.random() * 300000)).toLocaleString()}`,
-      null, { buyer });
+    if (soLines.length > 0) {
+      const so: SalesOrder = {
+        id: soId, soNumber, channel: 'WHOLESALE', type: 'STANDARD', status: 'CONFIRMED',
+        locationId: wh.id, customerId: null,
+        customerName: buyer, customerEmail: `orders@${buyer.toLowerCase().replace(/[^a-z]/g, '')}.mock`,
+        wholesaleBuyerId: generateId(),
+        currency: buyerData.currency as any,
+        subtotal, taxAmount: 0, discountAmount: 0, totalAmount: subtotal,
+        shippingAddress: null, shippingCity: buyerData.city, shippingCountry: buyerData.country,
+        requestedShipDate: new Date(simClock.getTime() + 60 * 86400000).toISOString(),
+        actualShipDate: null, deliveredAt: null,
+        notes: `[SIM] Wholesale ${seasonLabel} order from ${buyer}`, priority: 1,
+        createdById: wholesaleUser.id, createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
+      };
+      store.salesOrders.push(so);
+      store.soLines.push(...soLines);
+      logSOStatusChange(soId, null, 'CONFIRMED', wholesaleUser.id, `Wholesale order from ${buyer}`);
+      logAudit('CREATE', 'SalesOrder', soId, null, { soNumber, channel: 'WHOLESALE', buyer, styles: soLines.length });
+
+      const carrier = faker.helpers.arrayElement(['DHL Express', 'FedEx', 'DB Schenker']);
+      const totalItems = soLines.reduce((s, l) => s + l.quantityOrdered, 0);
+
+      // Chain: OMS → WMS pick → Carrier → Invoice → D365
+      queueChain(120 + Math.random() * 360, 'Teamwork Commerce', 'WHOLESALE_ORDER_PROCESSED',
+        `Wholesale order ${soNumber} from ${buyer} processed — ${soLines.length} styles, ${totalItems} units allocated from ${wh.name}`,
+        soId, { buyer, soNumber, warehouseName: wh.name, styles: soLines.length, units: totalItems });
+
+      queueChain(1440 + Math.random() * 2880, 'Blue Yonder WMS', 'WHOLESALE_PICK',
+        `Wholesale pick at ${wh.name} for ${soNumber} (${buyer}) — ${soLines.length} styles, ${totalItems} units, bulk palletization`,
+        soId, { buyer, soNumber, warehouseName: wh.name });
+
+      queueChain(2880 + Math.random() * 4320, 'Carrier', 'WHOLESALE_SHIPMENT',
+        `${carrier}: Wholesale shipment for ${soNumber} (${buyer}) dispatched from ${wh.name} — ${Math.ceil(totalItems / 100)} pallets to ${buyerData.city}`,
+        soId, { buyer, soNumber, carrier, destination: buyerData.city },
+        () => {
+          so.status = 'SHIPPED' as any; so.actualShipDate = simClock.toISOString(); so.updatedAt = simClock.toISOString();
+          logSOStatusChange(soId, 'CONFIRMED' as any, 'SHIPPED', wholesaleUser.id, 'Wholesale shipment dispatched');
+          createShipment(soId, carrier, `${carrier.slice(0,3).toUpperCase()}${Math.floor(Math.random()*9e9)+1e9}`);
+        });
+
+      queueChain(4320 + Math.random() * 5760, 'Medius AP', 'WHOLESALE_INVOICE',
+        `Wholesale invoice for ${soNumber} (${buyer}): ${buyerData.currency} ${subtotal.toLocaleString()} — ${soLines.length} styles`,
+        soId, { buyer, soNumber, amount: subtotal, currency: buyerData.currency });
+
+      queueChain(5760 + Math.random() * 7200, 'D365 ERP', 'REVENUE_RECOGNITION',
+        `Wholesale revenue recognized: ${soNumber} (${buyer}) — ${buyerData.currency} ${subtotal.toLocaleString()}`,
+        soId, { buyer, soNumber, amount: subtotal, currency: buyerData.currency, account: '4100-REVENUE' });
+
+      return evt('NuORDER', 'WHOLESALE_ORDER_CONFIRMED',
+        `${buyer} confirmed ${seasonLabel} order ${soNumber} — ${soLines.length} styles, ${totalItems} units, ${buyerData.currency} ${subtotal.toLocaleString()} — ship to ${buyerData.city}`,
+        soId, { buyer, soNumber, action, styles: soLines.length, units: totalItems, total: subtotal, currency: buyerData.currency, season: seasonLabel });
+    }
   }
 
-  return evt('NuORDER', 'WHOLESALE_ACTIVITY', text!, null, { buyer, action, productName: product.name, styleNumber: product.styleNumber });
+  return evt('NuORDER', 'WHOLESALE_ACTIVITY', text!, null, { buyer, action, productName: product.name, styleNumber: product.styleNumber, season: seasonLabel });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1823,9 +1944,8 @@ export function runSeedSimulation(days: number, storeInstance: Store): void {
   loadDefaultCalendar(store);
   lastCalendarCheckDay = '';
 
-  // ~45 seconds per tick, so ticks per day = 86400/45 ≈ 1920
-  // Use ~80 ticks/day for seeding (enough to generate realistic data, fast enough to start quickly)
-  const ticksPerDay = 80;
+  // Scale ticks/day based on sim length — more days = fewer ticks each to keep startup fast
+  const ticksPerDay = days <= 60 ? 80 : days <= 365 ? 20 : 12;
   const totalTicks = days * ticksPerDay;
   const advancePerTick = 86400000 / ticksPerDay; // ms to advance per tick
 
@@ -1843,8 +1963,9 @@ export function runSeedSimulation(days: number, storeInstance: Store): void {
       try { checkCalendarDrops(store, simClock); } catch { /* skip */ }
     }
 
-    // Generate events (we don't store the SimEvent log, just the store mutations)
-    const batchSize = 3 + Math.floor(Math.random() * 6);
+    // Generate events — larger batches when using fewer ticks per day
+    const baseBatch = ticksPerDay >= 60 ? 3 : ticksPerDay >= 15 ? 10 : 18;
+    const batchSize = baseBatch + Math.floor(Math.random() * (baseBatch / 2));
     for (let i = 0; i < batchSize; i++) {
       try {
         generateEvent();
