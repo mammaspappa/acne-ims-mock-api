@@ -139,6 +139,7 @@ export function getDashboardHtml(baseUrl: string): string {
         <label class="checkbox-wrap"><input type="checkbox" id="sim-auto-scenarios"> Auto Scenarios</label>
         <input id="sim-phrase" type="password" placeholder="Passphrase" style="padding:4px 8px; font-size:12px; border:1px solid #ddd; border-radius:4px; width:200px">
         <button class="refresh-btn" onclick="toggleSim()" id="sim-btn">Start Simulation</button>
+        <button class="refresh-btn" onclick="resetDatabase()" id="reset-btn" style="background:#dc2626;display:none">Reset Database</button>
       </div>
       <div id="sim-log" style="max-height:250px; overflow-y:auto; font-size:12px; font-family:monospace; background:#f9f9f9; border:1px solid #eee; border-radius:6px; padding:8px"></div>
     </div>
@@ -352,6 +353,19 @@ async function toggleSim() {
   }
 }
 
+async function resetDatabase() {
+  if (!confirm('Reset all data to seed state? This will undo all simulation changes.')) return;
+  try {
+    const res = await fetch(BASE + '/api/v1/admin/reset', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Failed to reset'); return; }
+    loadAll();
+    loadMapLocations();
+    const state = await api('admin/simulation');
+    updateSimUI(state);
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
 let lastTableRefresh = 0;
 async function pollSim() {
   try {
@@ -377,6 +391,7 @@ function updateSimUI(state) {
   const btnEl = document.getElementById('sim-btn');
   const logEl = document.getElementById('sim-log');
 
+  const resetBtn = document.getElementById('reset-btn');
   if (state.running) {
     statusEl.className = 'badge badge-green';
     let label = 'Running (' + state.speedMultiplier + 'x)';
@@ -384,11 +399,13 @@ function updateSimUI(state) {
     statusEl.textContent = label;
     btnEl.textContent = 'Stop Simulation';
     btnEl.style.background = '#dc2626';
+    resetBtn.style.display = 'none';
   } else {
     statusEl.className = 'badge badge-gray';
     statusEl.textContent = state.eventsGenerated > 0 ? 'Stopped' : 'Not running';
     btnEl.textContent = 'Start Simulation';
     btnEl.style.background = '#000';
+    resetBtn.style.display = state.eventsGenerated > 0 ? 'inline-block' : 'none';
   }
 
   const scenarioLabel = state.activeScenarios > 0 ? ' | ' + state.activeScenarios + ' scenario(s) active' : '';
@@ -415,8 +432,12 @@ function updateSimUI(state) {
     logEl.innerHTML = events.slice().reverse().map(e => {
       const time = new Date(e.timestamp).toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       const color = systemColors[e.system] || 'gray';
-      return '<div style="margin-bottom:4px;border-bottom:1px solid #f0f0f0;padding-bottom:4px">' +
+      const isChained = e.details?._chained;
+      const chainMark = isChained ? '<span style="color:#c8937a;margin-right:3px" title="Chained event">↳</span>' : '';
+      const bgStyle = isChained ? 'background:rgba(200,147,122,0.04);' : '';
+      return '<div style="margin-bottom:4px;border-bottom:1px solid #f0f0f0;padding-bottom:4px;' + bgStyle + '">' +
         '<span style="color:#999">' + time + '</span> ' +
+        chainMark +
         badge(e.system, color) + ' ' +
         '<span>' + e.summary + '</span></div>';
     }).join('');
@@ -772,6 +793,30 @@ function initOLMap() {
     }),
     controls: [],
     interactions: ol.interaction.defaults.defaults({ mouseWheelZoom: false }),
+  });
+
+  // Tooltip overlay for location hover
+  const tooltipEl = document.createElement('div');
+  tooltipEl.style.cssText = 'background:rgba(0,0,0,0.8);color:#fff;padding:6px 10px;border-radius:4px;font-size:11px;font-family:-apple-system,sans-serif;pointer-events:none;white-space:nowrap;';
+  const tooltip = new ol.Overlay({ element: tooltipEl, positioning: 'bottom-center', offset: [0, -20] });
+  olMap.addOverlay(tooltip);
+
+  olMap.on('pointermove', function(e) {
+    const feat = olMap.forEachFeatureAtPixel(e.pixel, f => f, { layerFilter: l => l === locationLayer });
+    if (feat && feat.get('name')) {
+      const name = feat.get('name');
+      const type = feat.get('type');
+      const onHand = feat.get('onHand') || 0;
+      const allocated = feat.get('allocated') || 0;
+      const inTransit = feat.get('inTransit') || 0;
+      tooltipEl.innerHTML = '<strong>' + name + '</strong> (' + type.toLowerCase() + ')' +
+        '<br>On hand: ' + onHand.toLocaleString() +
+        ' | Allocated: ' + allocated.toLocaleString() +
+        ' | In transit: ' + inTransit.toLocaleString();
+      tooltip.setPosition(e.coordinate);
+    } else {
+      tooltip.setPosition(undefined);
+    }
   });
 }
 

@@ -389,8 +389,44 @@ function evt(system: string, type: string, summary: string, entityId: string | n
   return { id: generateId(), timestamp: simClock.toISOString(), system, type, summary, entityId, details };
 }
 
+// Season-aware product selection — products in the current season sell more
+function seasonalProduct(): ReturnType<typeof randomProduct> {
+  const month = simClock.getMonth() + 1; // 1-12
+  const isAW = month >= 8 || month <= 2; // Aug-Feb = Autumn/Winter
+  const products = store.products;
+  if (products.length === 0) return randomProduct();
+
+  // Weight by season match and category
+  const weighted = products.map(p => {
+    let w = 1;
+    const pSeason = p.season;
+    if ((isAW && pSeason === 'AW') || (!isAW && pSeason === 'SS')) w = 3; // in-season
+    if ((isAW && pSeason === 'SS') || (!isAW && pSeason === 'AW')) w = 0.4; // off-season
+    if (p.isCarryOver) w *= 1.2; // carry-over always sells
+    // Category seasonal boost
+    if (isAW && (p.category === 'Outerwear' || p.category === 'Knitwear')) w *= 2;
+    if (!isAW && (p.category === 'T-shirts' || p.category === 'Denim')) w *= 1.5;
+    return { p, w };
+  });
+  const total = weighted.reduce((s, x) => s + x.w, 0);
+  let roll = Math.random() * total;
+  for (const { p, w } of weighted) {
+    roll -= w;
+    if (roll <= 0) return p;
+  }
+  return products[0];
+}
+
+// Is it a weekend in simulated time?
+function isWeekend(): boolean {
+  const day = simClock.getDay(); // 0=Sun, 6=Sat
+  return day === 0 || day === 6;
+}
+
 const countryToCurrency: Record<string, string> = { US: 'USD', SE: 'SEK', FR: 'EUR', GB: 'GBP', DE: 'EUR', JP: 'JPY', KR: 'KRW', AU: 'AUD', CN: 'CNY', IT: 'EUR', DK: 'EUR', NO: 'NOK', SG: 'SGD', TH: 'THB', HK: 'HKD' };
 const countryTaxRate: Record<string, number> = { US: 0.08, SE: 0.25, FR: 0.20, GB: 0.20, DE: 0.19, JP: 0.10, KR: 0.10, AU: 0.10, DK: 0.25, NO: 0.25, IT: 0.22, CN: 0.13, SG: 0.09, TH: 0.07, HK: 0 };
+// Rough FX rates from SEK to local currency (SEK base)
+const sekToLocal: Record<string, number> = { SEK: 1, EUR: 0.088, USD: 0.095, GBP: 0.075, JPY: 14.5, KRW: 128, AUD: 0.145, CNY: 0.69, NOK: 1.02, DKK: 0.66, SGD: 0.127, HKD: 0.74, THB: 3.3 };
 
 // ─── Event Generators ─────────────────────────────────
 
@@ -458,10 +494,11 @@ function timeWeightMultiplier(fn: Gen): number {
     return 0.15 + avgVol * 0.85; // never fully zero (night owls exist)
   }
 
-  // In-store: only when stores are open somewhere
+  // In-store: only when stores are open somewhere, boosted on weekends
   if (fn === genRetailSale || fn === genRetailReturn || fn === genClientelingOrder ||
       fn === genRfidScan || fn === genRfidDiscrepancy || fn === genStoreOps) {
-    return anyStoreOpen ? 1.0 : 0.03; // near-zero when all stores closed
+    const weekendBoost = isWeekend() ? 1.4 : 1.0; // 40% more retail on weekends
+    return anyStoreOpen ? weekendBoost : 0.03;
   }
 
   // Warehouse: active on extended hours
@@ -469,8 +506,9 @@ function timeWeightMultiplier(fn: Gen): number {
     return anyWarehouseActive ? 1.0 : 0.1;
   }
 
-  // B2B/wholesale/PLM/finance/POs: office hours (EU-centric HQ)
+  // B2B/wholesale/PLM/finance/POs: office hours (EU-centric HQ), zero on weekends
   if (fn === genWholesaleActivity || fn === genMediusInvoice || fn === genCentricPlmEvent || fn === genD365Event || fn === genPOCreate || fn === genPOLifecycle || fn === genMatchingRun || fn === genForecastUpdate) {
+    if (isWeekend()) return 0.02; // near-zero on weekends
     return isOfficeHours('Europe/Stockholm') ? 1.0 : 0.05;
   }
 
@@ -600,22 +638,29 @@ function genEcomOrder(): SimEvent {
   const currency = countryToCurrency[country] || 'EUR';
   const customer = { name: faker.person.fullName(), email: faker.internet.email(), city: faker.location.city(), country };
   const itemCount = 1 + Math.floor(Math.random() * 3);
-  const skus = [...store.skus].sort(() => Math.random() - 0.5).slice(0, itemCount);
+  // Pick SKUs from seasonal products
+  const selectedProducts = Array.from({ length: itemCount }, () => seasonalProduct());
+  const skus = selectedProducts.map(p => {
+    const pSkus = store.skus.filter(s => s.productId === p.id);
+    return pSkus.length > 0 ? pSkus[Math.floor(Math.random() * pSkus.length)] : store.skus[Math.floor(Math.random() * store.skus.length)];
+  });
   const ecomUser = store.users.find(u => u.role === 'ECOM')!;
 
   let subtotal = 0;
   const soLines: SOLine[] = [];
   const soId = generateId();
   const soNumber = `SO-EC-SIM-${String(state.eventsGenerated + 1).padStart(5, '0')}`;
+  const fxRate = sekToLocal[currency] || 0.095;
 
   for (const sku of skus) {
     const qty = 1 + Math.floor(Math.random() * 2);
-    const lineTotal = qty * sku.retailPrice;
+    const localPrice = Math.round(sku.retailPrice * fxRate);
+    const lineTotal = qty * localPrice;
     subtotal += lineTotal;
     soLines.push({
       id: generateId(), salesOrderId: soId, skuId: sku.id, quantityOrdered: qty,
       quantityAllocated: 0, quantityShipped: 0, quantityReturned: 0,
-      unitPrice: sku.retailPrice, discountPercent: 0, lineTotal,
+      unitPrice: localPrice, discountPercent: 0, lineTotal,
       notes: null, createdAt: now().toISOString(), updatedAt: now().toISOString(),
     });
   }
@@ -792,6 +837,44 @@ function genClientelingOrder(): SimEvent {
     personal_shopping_scheduled: `Personal shopping appointment scheduled for ${vicName} at ${loc.name} — ${faker.helpers.arrayElement(['tomorrow 14:00', 'Saturday 11:00', 'next Monday 10:00'])}`,
     wish_list_item_arrived: `VIC ${vicName} notified: wish-listed ${product?.name || '?'} now available at ${loc.name}`,
   }[action];
+  // Chain: special_order_placed → create actual SO + warehouse transfer
+  if (action === 'special_order_placed') {
+    const soId = generateId();
+    const soNumber = `SO-CL-SIM-${generateId().slice(0, 6).toUpperCase()}`;
+    const storeMgr = store.users.find(u => u.role === 'STORE_MGR') || systemUser();
+    const lineTotal = sku.retailPrice;
+    const soLine: SOLine = {
+      id: generateId(), salesOrderId: soId, skuId: sku.id,
+      quantityOrdered: 1, quantityAllocated: 0, quantityShipped: 0, quantityReturned: 0,
+      unitPrice: sku.retailPrice, discountPercent: 0, lineTotal,
+      notes: `VIC: ${vicName}`, createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
+    };
+    const so: SalesOrder = {
+      id: soId, soNumber, channel: 'CLIENTELING', type: 'STANDARD', status: 'CONFIRMED',
+      locationId: loc.id, customerId: generateId(),
+      customerName: vicName, customerEmail: null, wholesaleBuyerId: null,
+      currency: (sku.priceCurrency || 'SEK') as any,
+      subtotal: lineTotal, taxAmount: Math.round(lineTotal * 0.25), discountAmount: 0,
+      totalAmount: Math.round(lineTotal * 1.25),
+      shippingAddress: null, shippingCity: loc.city, shippingCountry: loc.countryCode,
+      requestedShipDate: simClock.toISOString(), actualShipDate: null, deliveredAt: null,
+      notes: `[SIM] VIC clienteling order at ${loc.name}`, priority: 2,
+      createdById: storeMgr.id, createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
+    };
+    store.salesOrders.push(so);
+    store.soLines.push(soLine);
+    logSOStatusChange(soId, null, 'CONFIRMED', storeMgr.id, 'VIC special order');
+
+    // Queue warehouse transfer fulfillment
+    const wh = randomWarehouse();
+    queueChain(60 + Math.random() * 240, 'Blue Yonder WMS', 'PICK_TASK_CREATED',
+      `VIC special order pick at ${wh.name}: ${product?.name || '?'} (${sku.colour}, ${sku.size}) for ${loc.name}`,
+      soId, { soNumber, warehouseName: wh.name, vicName });
+    queueChain(1440 + Math.random() * 2880, 'Carrier', 'SHIPMENT_DISPATCHED',
+      `Store transfer for VIC order ${soNumber}: ${wh.name} → ${loc.name}`,
+      soId, { soNumber, from: wh.name, to: loc.name });
+  }
+
   return evt('Teamwork POS', 'CLIENTELING', text!, loc.id, { vicName, locationName: loc.name, action, productName: product?.name });
 }
 
@@ -862,22 +945,41 @@ function genOrderLifecycle(): SimEvent {
     const carrier = faker.helpers.arrayElement(['DHL Express', 'FedEx', 'UPS', 'PostNord']);
     const tracking = `${carrier.slice(0, 3).toUpperCase()}${Math.floor(Math.random() * 9e9) + 1e9}`;
     createShipment(so.id, carrier, tracking);
-    // Update SO lines and log stock movements
     const lines = store.soLines.filter(l => l.salesOrderId === so.id);
     for (const line of lines) {
       line.quantityShipped = line.quantityOrdered;
       line.updatedAt = simClock.toISOString();
+      logStockMovement(line.skuId, 'SO_SHIPMENT', line.quantityOrdered, so.locationId, null, 'SalesOrder', so.id);
     }
+    // Chain: carrier dispatch + RFID outbound
+    const wh = store.locations.find(l => l.id === so.locationId) || randomWarehouse();
+    queueChain(Math.random() * 5, 'Nedap iD Cloud', 'RFID_OUTBOUND',
+      `RFID outbound scan at ${wh.name}: ${lines.length} item(s) verified for ${so.soNumber}`,
+      so.id, { soNumber: so.soNumber, warehouseName: wh.name });
+    queueChain(30 + Math.random() * 60, 'Carrier', 'SHIPMENT_UPDATE',
+      `${carrier} ${tracking}: Shipment for ${so.soNumber} in transit — departed ${wh.name}`,
+      so.id, { carrier, tracking, soNumber: so.soNumber });
   }
   if (nextStatus === 'ALLOCATED') {
-    // Update SO lines allocated qty
     const lines = store.soLines.filter(l => l.salesOrderId === so.id);
     for (const line of lines) {
       line.quantityAllocated = line.quantityOrdered;
       line.updatedAt = simClock.toISOString();
     }
   }
-  if (nextStatus === 'DELIVERED') so.deliveredAt = simClock.toISOString();
+  if (nextStatus === 'DELIVERED') {
+    so.deliveredAt = simClock.toISOString();
+    // Chain: DPP scan (customer receives product) + D365 revenue recognition
+    const product = store.soLines.filter(l => l.salesOrderId === so.id)
+      .map(l => store.products.find(p => store.skus.find(s => s.id === l.skuId)?.productId === p.id))
+      .find(p => p);
+    queueChain(1440 + Math.random() * 4320, 'Temera DPP', 'DPP_SCAN',
+      `Digital passport scanned (consumer scan): ${product?.name || 'product'} in ${so.shippingCity || 'unknown'}, ${so.shippingCountry || '??'}`,
+      so.id, { scanType: 'consumer_scan', soNumber: so.soNumber, verified: true });
+    queueChain(60 + Math.random() * 1440, 'D365 ERP', 'REVENUE_RECOGNITION',
+      `Revenue recognized: ${so.soNumber} — ${so.currency} ${so.totalAmount.toLocaleString()} (${so.channel})`,
+      so.id, { soNumber: so.soNumber, amount: so.totalAmount, currency: so.currency });
+  }
 
   return evt('Teamwork Commerce', 'ORDER_LIFECYCLE', `Order ${so.soNumber} progressed: ${prevStatus} → ${nextStatus} (${so.channel}, ${so.customerName || 'Unknown'})`, so.id,
     { soNumber: so.soNumber, from: prevStatus, to: nextStatus, channel: so.channel, customerName: so.customerName });
@@ -940,6 +1042,23 @@ function genShipmentUpdate(): SimEvent {
     delay_reported: `${carrier} ${tracking}: Delay reported — weather disruption at ${city} hub, ETA +${1 + Math.floor(Math.random() * 3)} days`,
     attempted_delivery: `${carrier} ${tracking}: Delivery attempted in ${city} — no one home, retry scheduled`,
   };
+  // Chains for delivery and delay events
+  if (status === 'delivered') {
+    const product = randomProduct();
+    queueChain(720 + Math.random() * 4320, 'Temera DPP', 'DPP_SCAN',
+      `Digital passport scanned (consumer scan): ${product.name} in ${city}`,
+      null, { scanType: 'consumer_scan', productName: product.name, city, verified: true });
+  }
+  if (status === 'delay_reported') {
+    const delayDays = 1 + Math.floor(Math.random() * 3);
+    queueChain(30 + Math.random() * 120, 'AI Intelligence', 'DELIVERY_DELAY_ALERT',
+      `Delivery delay detected: ${carrier} ${tracking} — ${delayDays} day(s) delayed at ${city}. Forecasts may be impacted`,
+      null, { carrier, tracking, delayDays, city });
+    queueChain(60 + Math.random() * 240, 'Customer Service', 'PROACTIVE_NOTIFICATION',
+      `Proactive delay notification sent to customer: ${carrier} shipment delayed ${delayDays} day(s) — ${city} hub disruption`,
+      null, { carrier, tracking, delayDays });
+  }
+
   return evt('Carrier', 'SHIPMENT_UPDATE', text[status], null, { carrier, tracking, status, city });
 }
 
@@ -1004,6 +1123,35 @@ function genStockMovement(): SimEvent {
     adjustment: `Stock adjustment: ${Math.random() > 0.5 ? '+' : '-'}${qty}x ${product?.name || '?'} at ${fromLoc.name} — ${faker.helpers.arrayElement(['cycle count correction', 'system sync', 'found in stockroom'])}`,
     damage_writeoff: `Damage writeoff: ${qty}x ${product?.name || '?'} at ${fromLoc.name} — ${faker.helpers.arrayElement(['water damage', 'torn seam', 'colour defect', 'soiled', 'broken zipper'])}`,
   };
+  // Log the stock movement record
+  const mvtType = type === 'replenishment' ? 'TRANSFER_OUT' : type === 'damage_writeoff' ? 'DAMAGE_WRITEOFF' : type === 'adjustment' ? 'ADJUSTMENT_POSITIVE' : type === 'return_received' ? 'RETURN_RECEIPT' : 'TRANSFER_OUT';
+  logStockMovement(sku.id, mvtType as any, qty, fromLoc.id, toLoc.id, 'STOCK_MOVEMENT', sku.id, type);
+
+  // Chains for specific movement types
+  if (type === 'damage_writeoff') {
+    const cost = (product?.costPrice || 500) * qty;
+    queueChain(1440 + Math.random() * 2880, 'D365 ERP', 'GL_POSTING',
+      `Inventory write-off: ${qty}x ${product?.name || '?'} at ${fromLoc.name} — SEK ${cost.toLocaleString()} posted to 5200-WRITEOFF`,
+      sku.id, { productName: product?.name, quantity: qty, amount: cost, account: '5200-WRITEOFF' });
+  }
+  if (type === 'replenishment') {
+    queueChain(30 + Math.random() * 120, 'Blue Yonder WMS', 'PICK_TASK_CREATED',
+      `Replenishment pick at ${fromLoc.name}: ${qty}x ${product?.name || '?'} for ${toLoc.name}`,
+      sku.id, { from: fromLoc.name, to: toLoc.name, quantity: qty });
+    const carrier = faker.helpers.arrayElement(['DHL Express', 'PostNord', 'DB Schenker']);
+    queueChain(120 + Math.random() * 360, 'Carrier', 'SHIPMENT_DISPATCHED',
+      `${carrier}: Replenishment shipment ${fromLoc.name} → ${toLoc.name} — ${qty}x ${product?.name || '?'}`,
+      sku.id, { carrier, from: fromLoc.name, to: toLoc.name });
+    queueChain(1440 + Math.random() * 4320, 'Nedap iD Cloud', 'RFID_INBOUND_SCAN',
+      `RFID inbound scan at ${toLoc.name}: ${qty}x ${product?.name || '?'} received from ${fromLoc.name}`,
+      sku.id, { locationName: toLoc.name, quantity: qty });
+  }
+  if (type === 'transfer') {
+    queueChain(0.5 + Math.random() * 2, 'Nedap iD Cloud', 'RFID_TRANSFER_SCAN',
+      `RFID scan: ${qty}x ${product?.name || '?'} transferred ${fromLoc.name} → ${toLoc.name}`,
+      sku.id, { from: fromLoc.name, to: toLoc.name, quantity: qty });
+  }
+
   return evt('Inventory', 'STOCK_MOVEMENT', text[type], sku.id, { movementType: type, quantity: qty, skuId: sku.id, productName: product?.name, from: fromLoc.name, to: toLoc.name });
 }
 
@@ -1012,35 +1160,53 @@ function genStockMovement(): SimEvent {
 // ═══════════════════════════════════════════════════════
 
 function genAdyenPayment(): SimEvent {
+  // Try to link to an actual SO for realistic payment data
+  const recentSOs = store.salesOrders.filter(so => ['CONFIRMED', 'ALLOCATED', 'SHIPPED', 'DELIVERED'].includes(so.status));
+  const linkedSO = recentSOs.length > 0 && Math.random() < 0.6 ? recentSOs[Math.floor(Math.random() * recentSOs.length)] : null;
+
   const type = faker.helpers.arrayElement(['authorised', 'authorised', 'captured', 'captured', 'refunded', 'partially_refunded', 'chargeback', 'settlement_completed', 'payment_failed']);
-  const amount = 500 + Math.floor(Math.random() * 50000);
-  const currency = faker.helpers.arrayElement(['SEK', 'SEK', 'EUR', 'EUR', 'USD', 'GBP', 'JPY']);
-  const method = faker.helpers.arrayElement(['visa', 'visa', 'mastercard', 'mastercard', 'amex', 'klarna', 'swish', 'apple_pay', 'ideal', 'google_pay']);
+  const amount = linkedSO ? linkedSO.totalAmount : (500 + Math.floor(Math.random() * 50000));
+  const currency = linkedSO ? linkedSO.currency : faker.helpers.arrayElement(['SEK', 'EUR', 'USD', 'GBP']);
+  const method = faker.helpers.arrayElement(['visa', 'visa', 'mastercard', 'mastercard', 'amex', 'apple_pay', 'swish', 'google_pay']);
   const psp = `MOCK_PSP_SIM_${generateId().slice(0, 12).toUpperCase()}`;
+  const soRef = linkedSO ? ` (${linkedSO.soNumber})` : '';
   const text: Record<string, string> = {
-    authorised: `Payment authorised: ${currency} ${(amount / 100).toFixed(2)} via ${method}`,
-    captured: `Payment captured: ${currency} ${(amount / 100).toFixed(2)} via ${method}`,
-    refunded: `Full refund: ${currency} ${(amount / 100).toFixed(2)} via ${method}`,
-    partially_refunded: `Partial refund: ${currency} ${(amount / 200).toFixed(2)} of ${(amount / 100).toFixed(2)} via ${method}`,
-    chargeback: `⚠ Chargeback received: ${currency} ${(amount / 100).toFixed(2)} via ${method} — investigation required`,
-    settlement_completed: `Settlement batch completed: ${10 + Math.floor(Math.random() * 50)} transactions, ${currency} ${(amount * 10 / 100).toFixed(2)} total`,
-    payment_failed: `Payment failed: ${currency} ${(amount / 100).toFixed(2)} via ${method} — ${faker.helpers.arrayElement(['insufficient funds', 'card declined', '3DS authentication failed', 'fraud suspicion'])}`,
+    authorised: `Payment authorised: ${currency} ${amount.toLocaleString()}${soRef} via ${method}`,
+    captured: `Payment captured: ${currency} ${amount.toLocaleString()}${soRef} via ${method}`,
+    refunded: `Full refund: ${currency} ${amount.toLocaleString()}${soRef} via ${method}`,
+    partially_refunded: `Partial refund: ${currency} ${Math.round(amount * 0.5).toLocaleString()} of ${amount.toLocaleString()}${soRef} via ${method}`,
+    chargeback: `Chargeback received: ${currency} ${amount.toLocaleString()}${soRef} via ${method} — investigation required`,
+    settlement_completed: `Settlement batch completed: ${10 + Math.floor(Math.random() * 50)} transactions, ${currency} ${(amount * 10).toLocaleString()} total`,
+    payment_failed: `Payment failed: ${currency} ${amount.toLocaleString()} via ${method} — ${faker.helpers.arrayElement(['insufficient funds', 'card declined', '3DS authentication failed', 'fraud suspicion'])}`,
   };
-  return evt('Adyen', 'PAYMENT_EVENT', text[type], psp, { eventType: type, amount, currency, paymentMethod: method, pspReference: psp });
+
+  // Chain: captured payments → D365 revenue posting
+  if (type === 'captured' && linkedSO) {
+    queueChain(60 + Math.random() * 1440, 'D365 ERP', 'GL_POSTING',
+      `Payment capture posted: ${linkedSO.soNumber} — ${currency} ${amount.toLocaleString()} to 4100-REVENUE`,
+      linkedSO.id, { soNumber: linkedSO.soNumber, amount, currency, account: '4100-REVENUE' });
+  }
+
+  return evt('Adyen', 'PAYMENT_EVENT', text[type], linkedSO?.id || psp, { eventType: type, amount, currency, paymentMethod: method, pspReference: psp, soNumber: linkedSO?.soNumber || null });
 }
 
 function genKlarnaEvent(): SimEvent {
+  // Try to link to an actual ecom SO
+  const ecomSOs = store.salesOrders.filter(so => so.channel === 'ECOMMERCE' && ['CONFIRMED', 'SHIPPED'].includes(so.status));
+  const linkedSO = ecomSOs.length > 0 && Math.random() < 0.5 ? ecomSOs[Math.floor(Math.random() * ecomSOs.length)] : null;
+
   const type = faker.helpers.arrayElement(['session_created', 'session_expired', 'order_placed', 'order_captured', 'reminder_sent', 'installment_paid', 'late_payment_notice']);
-  const customer = faker.person.fullName();
-  const amount = 1000 + Math.floor(Math.random() * 50000);
-  const currency = faker.helpers.arrayElement(['SEK', 'EUR', 'USD', 'GBP', 'NOK', 'DKK']);
+  const customer = linkedSO?.customerName || faker.person.fullName();
+  const amount = linkedSO ? linkedSO.totalAmount : (1000 + Math.floor(Math.random() * 50000));
+  const currency = linkedSO ? linkedSO.currency : faker.helpers.arrayElement(['SEK', 'EUR', 'USD', 'GBP', 'NOK']);
+  const soRef = linkedSO ? ` (${linkedSO.soNumber})` : '';
   const text: Record<string, string> = {
-    session_created: `Klarna session created: ${customer} — ${currency} ${(amount / 100).toFixed(2)} — Pay in 4`,
+    session_created: `Klarna session created: ${customer}${soRef} — ${currency} ${amount.toLocaleString()} — Pay in 4`,
     session_expired: `Klarna session expired: ${customer} — did not complete checkout within 48h`,
-    order_placed: `Klarna order placed: ${customer} — ${currency} ${(amount / 100).toFixed(2)} — Pay later`,
-    order_captured: `Klarna order captured: ${customer} — ${currency} ${(amount / 100).toFixed(2)} shipped`,
+    order_placed: `Klarna order placed: ${customer}${soRef} — ${currency} ${amount.toLocaleString()} — Pay later`,
+    order_captured: `Klarna order captured: ${customer}${soRef} — ${currency} ${amount.toLocaleString()} shipped`,
     reminder_sent: `Klarna payment reminder sent to ${customer} — installment ${Math.floor(Math.random() * 3) + 2}/4 due`,
-    installment_paid: `Klarna installment ${Math.floor(Math.random() * 3) + 1}/4 received from ${customer} — ${currency} ${(amount / 400).toFixed(2)}`,
+    installment_paid: `Klarna installment ${Math.floor(Math.random() * 3) + 1}/4 received from ${customer} — ${currency} ${Math.round(amount / 4).toLocaleString()}`,
     late_payment_notice: `Klarna late payment: ${customer} — installment overdue by ${1 + Math.floor(Math.random() * 7)} days`,
   };
   return evt('Klarna', 'KLARNA_EVENT', text[type], null, { eventType: type, customerName: customer, amount, currency });
@@ -1167,6 +1333,27 @@ function genAiAlert(): SimEvent {
     overstock_risk: `Overstock risk: ${product.name} — ${15 + Math.floor(Math.random() * 15)} weeks of cover. Consider transfer to ${faker.helpers.arrayElement(['outlet', 'high-velocity store', 'archive sale'])}`,
     margin_erosion: `Margin alert: ${product.name} blended margin dropped to ${40 + Math.floor(Math.random() * 15)}% (target: 58%) due to ${faker.helpers.arrayElement(['increased discounting', 'FX impact', 'higher logistics costs'])}`,
   };
+  // Chains: actionable alerts trigger downstream systems
+  if (type === 'reorder_needed') {
+    const supplier = randomSupplier();
+    const qty = 30 + Math.floor(Math.random() * 100);
+    queueChain(240 + Math.random() * 480, 'AI Intelligence', 'AI_RECOMMENDATION',
+      `Recommendation: Reorder ${product.name} — ${qty} units from ${supplier.name}. Confidence: ${80 + Math.floor(Math.random() * 15)}%`,
+      product.id, { type: 'REORDER', productName: product.name, supplierName: supplier.name, quantity: qty });
+  }
+  if (type === 'low_stock') {
+    const wh = randomWarehouse();
+    const transferQty = 3 + Math.floor(Math.random() * 10);
+    queueChain(120 + Math.random() * 360, 'AI Intelligence', 'AI_RECOMMENDATION',
+      `Recommendation: Transfer ${transferQty} units of ${product.name} from ${wh.name} to ${loc.name}`,
+      product.id, { type: 'TRANSFER', productName: product.name, from: wh.name, to: loc.name, quantity: transferQty });
+  }
+  if (type === 'overstock_risk') {
+    queueChain(480 + Math.random() * 1440, 'AI Intelligence', 'AI_RECOMMENDATION',
+      `Recommendation: Mark down ${product.name} by ${15 + Math.floor(Math.random() * 20)}% to accelerate sell-through`,
+      product.id, { type: 'MARKDOWN', productName: product.name });
+  }
+
   return evt('AI Intelligence', 'AI_ALERT', text[type], product.id, { alertType: type, productName: product.name, locationName: loc.name });
 }
 
@@ -1236,6 +1423,23 @@ function genCustomerService(): SimEvent {
     product_question: `CS ticket: ${customer} via ${channel} — Q: "${faker.helpers.arrayElement(['Is this true to size?', 'What material is the lining?', 'Can I get this monogrammed?', 'When will size 38 restock?', 'Is this suitable for machine wash?'])}"`,
     compliment: `CS ticket: ${customer} via ${channel} — "${faker.helpers.arrayElement(['Amazing quality, best purchase this year', 'Your store staff in Paris were incredibly helpful', 'Love the sustainability commitment', 'The packaging was beautiful, perfect gift'])}" 🎉`,
   };
+  // Chains for actionable CS tickets
+  if (type === 'return_request') {
+    const provider = faker.helpers.arrayElement(['Adyen', 'Klarna']);
+    const product = randomProduct();
+    queueChain(60 + Math.random() * 240, provider, 'REFUND_PROCESSED',
+      `Refund authorized for ${customer}: ${product.costPrice * 3} SEK via ${provider} — CS return request`,
+      null, { customerName: customer, amount: product.costPrice * 3 });
+    queueChain(1440 + Math.random() * 4320, 'Nedap iD Cloud', 'RFID_RETURN_SCAN',
+      `RFID return scan: ${product.name} returned by ${customer} — added back to sellable stock`,
+      null, { customerName: customer, productName: product.name });
+  }
+  if (type === 'complaint') {
+    queueChain(120 + Math.random() * 480, 'Customer Service', 'QUALITY_REPORT',
+      `Quality investigation opened: complaint from ${customer} — forwarded to QA team`,
+      null, { customerName: customer, channel });
+  }
+
   return evt('Customer Service', 'CS_TICKET', text[type], null, { eventType: type, customerName: customer, channel, priority: type === 'complaint' ? 'high' : type === 'compliment' ? 'low' : 'medium' });
 }
 
@@ -1292,7 +1496,25 @@ function genSecurityEvent(): SimEvent {
 
 function genPOCreate(): SimEvent {
   const supplier = randomSupplier();
-  const product = randomProduct();
+  // Match product to supplier's country specialization
+  const countryCategories: Record<string, string[]> = {
+    'Italy': ['Outerwear', 'Accessories', 'Knitwear', 'Trousers', 'Footwear'],
+    'Portugal': ['T-shirts', 'Knitwear', 'Denim', 'Footwear', 'Outerwear'],
+    'China': ['T-shirts', 'Trousers', 'Outerwear', 'Denim'],
+    'Turkey': ['Denim'],
+    'Romania': ['Outerwear', 'Trousers'],
+    'Bulgaria': ['T-shirts', 'Knitwear'],
+    'Morocco': ['Outerwear', 'Accessories'],
+    'Lithuania': ['Knitwear', 'T-shirts'],
+  };
+  const cats = countryCategories[supplier.country] || [];
+  let product;
+  if (cats.length > 0) {
+    const matching = store.products.filter(p => cats.includes(p.category));
+    product = matching.length > 0 ? matching[Math.floor(Math.random() * matching.length)] : seasonalProduct();
+  } else {
+    product = seasonalProduct();
+  }
   const skus = store.skus.filter(s => s.productId === product.id).slice(0, 3 + Math.floor(Math.random() * 5));
   if (skus.length === 0) return genSupplierUpdate();
   const user = buyerUser();
@@ -1517,6 +1739,7 @@ function genForecastUpdate(): SimEvent {
       createdAt: simClock.toISOString(),
     };
     store.demandForecasts.push(forecast);
+    logAudit('CREATE', 'DemandForecast', forecast.id, null, { skuId: sku.id, predictedDemand: baseDemand });
   }
 
   // Occasionally generate a recommendation
@@ -1532,6 +1755,7 @@ function genForecastUpdate(): SimEvent {
       createdAt: simClock.toISOString(),
     };
     store.aiRecommendations.push(rec);
+    logAudit('CREATE', 'AIRecommendation', rec.id, null, { type, productName: product.name, confidence: rec.confidence });
   }
 
   // Occasionally generate an anomaly
@@ -1549,6 +1773,7 @@ function genForecastUpdate(): SimEvent {
       createdAt: simClock.toISOString(),
     };
     store.anomalyAlerts.push(alert);
+    logAudit('CREATE', 'AnomalyAlert', alert.id, null, { type: anomalyType, severity: alert.severity, productName: product.name });
   }
 
   return evt('AI Intelligence', 'FORECAST_UPDATE', `Demand forecast updated for ${product.name} (${skus.length} SKUs) — model v1.2.0`, product.id,
