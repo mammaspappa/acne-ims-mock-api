@@ -9,6 +9,7 @@ import { latencyPlugin } from './plugins/latency.plugin.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { productRoutes } from './modules/products/products.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
+import { exportRoutes } from './modules/admin/export.routes.js';
 import { seasonDropRoutes } from './modules/admin/season-drop.routes.js';
 import { purchaseOrderRoutes } from './modules/purchase-orders/po.routes.js';
 import { inventoryRoutes } from './modules/inventory/inventory.routes.js';
@@ -112,6 +113,7 @@ async function buildServer() {
     await api.register(authRoutes);
     await api.register(productRoutes);
     await api.register(adminRoutes);
+    await api.register(exportRoutes);
     await api.register(seasonDropRoutes);
     await api.register(purchaseOrderRoutes);
     await api.register(inventoryRoutes);
@@ -290,6 +292,16 @@ Passphrase: \`acne-hackathon-simulate-2026\`
 - \`GET /ai-context.json\` — structured context for AI agents
 - \`GET /docs/json\` — full OpenAPI 3 spec (all endpoints + schemas)
 
+## Bulk data export
+
+For offline analysis, every entity can be downloaded as CSV or JSON (unpaginated):
+
+- \`GET /api/v1/export\` — list all 22 exportable entities with row counts
+- \`GET /api/v1/export/:entity.csv\` — CSV download (RFC 4180)
+- \`GET /api/v1/export/:entity.json\` — full JSON array
+
+Entities: products, skus, locations, suppliers, users, purchase-orders, po-lines, po-receipts, po-status-history, sales-orders, so-lines, so-status-history, shipments, stock-levels, stock-movements, matches, matching-runs, forecasts, recommendations, anomalies, audit-logs, season-drops
+
 ## Sample workflow
 
 \`\`\`
@@ -362,6 +374,13 @@ curl ${_request.protocol}://${_request.hostname}/api/v1/inventory/movements?limi
         stockLevels: { endpoint: `${baseUrl}/api/v1/inventory/levels`, count: stats.stockLevels },
         stockMovements: { endpoint: `${baseUrl}/api/v1/inventory/movements` },
         matches: { endpoint: `${baseUrl}/api/v1/matching/proposals`, count: stats.sopoMatches },
+      },
+      export: {
+        note: 'Bulk data export — unpaginated CSV or JSON dumps of any entity.',
+        list: `${baseUrl}/api/v1/export`,
+        csvExample: `${baseUrl}/api/v1/export/sales-orders.csv`,
+        jsonExample: `${baseUrl}/api/v1/export/sales-orders.json`,
+        entities: ['products', 'skus', 'locations', 'suppliers', 'users', 'purchase-orders', 'po-lines', 'po-receipts', 'po-status-history', 'sales-orders', 'so-lines', 'so-status-history', 'shipments', 'stock-levels', 'stock-movements', 'matches', 'matching-runs', 'forecasts', 'recommendations', 'anomalies', 'audit-logs', 'season-drops'],
       },
       externalSystems: {
         directory: `${baseUrl}/external`,

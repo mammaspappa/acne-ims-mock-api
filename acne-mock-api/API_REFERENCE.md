@@ -266,9 +266,23 @@ Query parameters for pagination: `?page=1&limit=20`
 | `POST` | `/api/v1/admin/simulation/scenarios/activate` | Activate a scenario. Body: `{ passphrase, scenarioId, severity?, durationMinutes?, market?, productId?, supplierId?, ... }` |
 | `POST` | `/api/v1/admin/simulation/scenarios/:instanceId/deactivate` | Deactivate a running scenario. Body: `{ passphrase }` |
 
+### Data Export (3 endpoints)
+
+Bulk data dumps for offline analysis — not paginated, returns the entire collection.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/export` | List all 22 exportable entities with row counts and URLs. |
+| `GET` | `/api/v1/export/:entity.csv` | Download entity as CSV (RFC 4180). |
+| `GET` | `/api/v1/export/:entity.json` | Download entity as JSON array (unpaginated). |
+
+**Available entities:** `products`, `skus`, `locations`, `suppliers`, `users`, `purchase-orders`, `po-lines`, `po-receipts`, `po-status-history`, `sales-orders`, `so-lines`, `so-status-history`, `shipments`, `stock-levels`, `stock-movements`, `matches`, `matching-runs`, `forecasts`, `recommendations`, `anomalies`, `audit-logs`, `season-drops`
+
 **Simulation passphrase:** `acne-hackathon-simulate-2026`
 
-**Available scenarios:** `VIRAL_PRODUCT`, `CELEBRITY_ENDORSEMENT`, `FLASH_SALE_GONE_WRONG`, `GEOPOLITICAL_DISRUPTION`, `MARKET_RECESSION`, `GLOBAL_ECONOMIC_SLOWDOWN`, `CURRENCY_CRISIS`, `SUPPLIER_DISRUPTION`, `LOGISTICS_BOTTLENECK`, `RAW_MATERIAL_SHORTAGE`, `QUALITY_CRISIS`, `COUNTERFEIT_SURGE`, `WAREHOUSE_OUTAGE`, `PAYMENT_PROVIDER_OUTAGE`, `CYBER_INCIDENT`, `WEATHER_ANOMALY`
+**Available scenarios (20):** `VIRAL_PRODUCT`, `CELEBRITY_ENDORSEMENT`, `FLASH_SALE_GONE_WRONG`, `GEOPOLITICAL_DISRUPTION`, `MARKET_RECESSION`, `GLOBAL_ECONOMIC_SLOWDOWN`, `CURRENCY_CRISIS`, `SUPPLIER_DISRUPTION`, `LOGISTICS_BOTTLENECK`, `RAW_MATERIAL_SHORTAGE`, `QUALITY_CRISIS`, `COUNTERFEIT_SURGE`, `WAREHOUSE_OUTAGE`, `PAYMENT_PROVIDER_OUTAGE`, `CYBER_INCIDENT`, `WEATHER_ANOMALY`, `SEASON_LAUNCH`, `SIZING_DEFECT`, `SIZE_CURVE_ERROR`, `EMPLOYEE_FRAUD_RING`
+
+> **Note on scenarios:** Scenario events are **invisible in API responses** — they blend into normal system activity. Detecting them requires cross-system correlation, statistical anomaly detection, and pattern recognition. This is intentional for the hackathon challenge.
 
 **Severity levels:** `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
 

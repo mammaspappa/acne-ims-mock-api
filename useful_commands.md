@@ -135,6 +135,27 @@ curl -X POST http://localhost:3000/api/v1/admin/simulation/scenarios/activate \
 curl http://localhost:3000/api/v1/admin/simulation/scenarios/active | python3 -m json.tool
 ```
 
+## Data export
+
+```bash
+# List all 22 exportable entities with row counts
+curl -s https://acnehack.se/api/v1/export | python3 -m json.tool
+
+# Download a single CSV
+curl -sOJ https://acnehack.se/api/v1/export/sales-orders.csv
+
+# Dump everything to /home/localuser/Acne/exports/
+bash /home/localuser/Acne/exports/generate.sh
+
+# Dump from production instead of localhost
+BASE=https://acnehack.se bash /home/localuser/Acne/exports/generate.sh
+
+# In a browser: just visit
+https://acnehack.se/api/v1/export/sales-orders.csv
+# ...the browser will download it as an attachment because we set
+# Content-Disposition: attachment; filename="sales-orders.csv"
+```
+
 ## Git
 
 ```bash
