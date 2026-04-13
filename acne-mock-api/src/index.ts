@@ -194,6 +194,202 @@ async function buildServer() {
     return reply.status(204).send();
   });
 
+  // ─── AI Agent Discovery ──────────────────────────────
+  // llms.txt standard (https://llmstxt.org) — Markdown summary for LLM consumers
+  fastify.get('/llms.txt', async (_request, reply) => {
+    const md = `# Acne Studios IMS — Mock API
+
+> Hackathon mock server simulating the full supply chain and retail operations of Acne Studios, a Swedish luxury fashion house. 80+ retail stores, 20+ e-commerce sites, and ~800 wholesale partners across 50+ countries.
+
+Base URL: \`${_request.protocol}://${_request.hostname}\`
+All API endpoints: \`/api/v1/\`
+Swagger UI: \`/docs\`
+OpenAPI spec: \`/docs/json\`
+
+## What this server does
+
+This is a fully-simulated IMS (Inventory Management System) with:
+- **In-memory data store** — seeded by running 30 days of business through the simulation engine
+- **Live simulation engine** — generates realistic cross-system events in real time
+- **16 external system mocks** — SFCC, Teamwork POS, Blue Yonder WMS, Nedap RFID, NuORDER, Centric PLM, Medius AP, Adyen, Klarna, Temera DPP, D365 ERP
+- **20 disruption scenarios** — viral products, supplier disruptions, fraud rings, etc. (invisible to API consumers — discoverable only through data analysis)
+- **Cross-system event chains** — one event triggers realistic cascades (e.g. ecom order → payment auth → OMS → WMS pick → carrier dispatch → RFID scan → delivery → DPP scan)
+
+## Authentication
+
+Optional. All endpoints default to ADMIN role with full access.
+To test RBAC: \`POST /api/v1/auth/login\` with any seeded user email and password \`hackathon2026\`.
+
+## Key endpoint groups
+
+- \`/api/v1/products\` — product catalog and SKUs (54 products, 729 SKUs)
+- \`/api/v1/purchase-orders\` — PO lifecycle with full state machine
+- \`/api/v1/sales-orders\` — SO lifecycle (ECOMMERCE, WHOLESALE, CLIENTELING, RETAIL_STORE channels)
+- \`/api/v1/inventory/levels\` — stock levels across all locations
+- \`/api/v1/inventory/movements\` — audit trail of every stock change
+- \`/api/v1/matching\` — intelligent SO↔PO matching engine with scoring
+- \`/api/v1/stakeholders/suppliers\` — 15 real suppliers based on Acne sustainability reports
+- \`/api/v1/ai/forecasts\`, \`/ai/recommendations\`, \`/ai/anomalies\` — AI-generated intelligence
+- \`/api/v1/reports\` — analytics and KPIs
+
+## External system mocks (11)
+
+Each mock exposes a realistic subset of the real vendor's API at:
+- \`/external/sfcc/...\` — Salesforce Commerce Cloud
+- \`/external/teamwork/...\` — Teamwork Commerce (POS/OMS)
+- \`/external/blue-yonder/...\` — Blue Yonder WMS
+- \`/external/nedap/...\` — Nedap iD Cloud (RFID)
+- \`/external/nuorder/...\` — NuORDER (B2B wholesale)
+- \`/external/centric/...\` — Centric PLM
+- \`/external/medius/...\` — Medius AP automation
+- \`/external/temera/...\` — Temera Digital Product Passport
+- \`/external/d365/...\` — Microsoft Dynamics 365 ERP
+- \`/external/adyen/...\` — Adyen payments
+- \`/external/klarna/...\` — Klarna payments
+
+Machine-readable directory: \`/external\`
+
+## Simulation control
+
+Passphrase: \`acne-hackathon-simulate-2026\`
+
+- \`GET /api/v1/admin/simulation\` — current state, event count, sim clock
+- \`POST /api/v1/admin/simulation/start\` — start event generation. Body: \`{ passphrase, durationHours, speedMultiplier, autoScenarios?, startDate? }\`
+- \`POST /api/v1/admin/simulation/stop\` — stop and clear
+- \`GET /api/v1/admin/simulation/log?limit=50\` — recent generated events
+- \`POST /api/v1/admin/reset\` — restore all data to seed state
+
+## Scenarios (facilitator-only)
+
+20 disruption scenarios that generate invisible data-level anomalies (no marker fields — must be discovered through analysis):
+
+- Demand: VIRAL_PRODUCT, CELEBRITY_ENDORSEMENT, FLASH_SALE_GONE_WRONG
+- Market: GEOPOLITICAL_DISRUPTION, MARKET_RECESSION, GLOBAL_ECONOMIC_SLOWDOWN, CURRENCY_CRISIS
+- Supply: SUPPLIER_DISRUPTION, LOGISTICS_BOTTLENECK, RAW_MATERIAL_SHORTAGE
+- Quality: QUALITY_CRISIS, COUNTERFEIT_SURGE, SIZING_DEFECT, SIZE_CURVE_ERROR
+- Operational: WAREHOUSE_OUTAGE, PAYMENT_PROVIDER_OUTAGE, CYBER_INCIDENT, EMPLOYEE_FRAUD_RING
+- External: WEATHER_ANOMALY, SEASON_LAUNCH
+
+- \`GET /api/v1/admin/simulation/scenarios\` — catalog
+- \`POST /api/v1/admin/simulation/scenarios/activate\` — trigger one
+- \`GET /api/v1/admin/simulation/scenarios/active\` — active instances
+
+## Key concepts for AI agents
+
+1. **All data is in-memory** — \`POST /api/v1/admin/reset\` restores to seed state.
+2. **Simulated time (simClock)** advances independently from wall clock when the simulation is running. Use it for time-sensitive analysis.
+3. **Cross-system events are chained** with realistic delays — one SFCC order creates a trail across 6+ systems over hours/days of sim time.
+4. **Scenarios are hidden** from API responses. Detecting them requires cross-system correlation, statistical anomaly detection, and pattern recognition.
+5. **Sizes and seasons matter** — orders are weighted by a realistic size bell curve and seasonal demand patterns.
+6. **Currency conversion** — ecom and POS prices are converted to local currency based on customer country.
+
+## Quick discovery
+
+- \`GET /api/v1/admin/health\` — current data stats (record counts per collection)
+- \`GET /api/v1/admin/seed-info\` — test user credentials, sample IDs, example requests
+- \`GET /ai-context.json\` — structured context for AI agents
+- \`GET /docs/json\` — full OpenAPI 3 spec (all endpoints + schemas)
+
+## Sample workflow
+
+\`\`\`
+# 1. Get current state
+curl ${_request.protocol}://${_request.hostname}/api/v1/admin/health
+
+# 2. Browse products
+curl ${_request.protocol}://${_request.hostname}/api/v1/products?limit=10
+
+# 3. Start simulation
+curl -X POST ${_request.protocol}://${_request.hostname}/api/v1/admin/simulation/start \\
+  -H 'Content-Type: application/json' \\
+  -d '{"passphrase":"acne-hackathon-simulate-2026","durationHours":168,"speedMultiplier":500}'
+
+# 4. Watch events stream
+curl ${_request.protocol}://${_request.hostname}/api/v1/admin/simulation/log?limit=50
+
+# 5. Analyze data (sales orders, stock movements, etc.)
+curl ${_request.protocol}://${_request.hostname}/api/v1/sales-orders?limit=20
+curl ${_request.protocol}://${_request.hostname}/api/v1/inventory/movements?limit=20
+\`\`\`
+`;
+    return reply.type('text/markdown; charset=utf-8').send(md);
+  });
+
+  // Structured JSON context for programmatic AI agent discovery
+  fastify.get('/ai-context.json', async (_request, reply) => {
+    const baseUrl = `${_request.protocol}://${_request.hostname}`;
+    const stats = store.stats();
+    const ctx = {
+      name: 'Acne Studios IMS — Mock API',
+      version: '1.0.0',
+      description: 'Hackathon mock server simulating the full supply chain and retail operations of Acne Studios.',
+      baseUrl,
+      apiBase: `${baseUrl}/api/v1`,
+      docs: {
+        swagger: `${baseUrl}/docs`,
+        openapi: `${baseUrl}/docs/json`,
+        llmsTxt: `${baseUrl}/llms.txt`,
+        apiReference: `${baseUrl}/api/v1/admin/seed-info`,
+      },
+      auth: {
+        required: false,
+        defaultRole: 'ADMIN',
+        loginEndpoint: `${baseUrl}/api/v1/auth/login`,
+        testPassword: 'hackathon2026',
+      },
+      simulation: {
+        passphrase: 'acne-hackathon-simulate-2026',
+        status: `${baseUrl}/api/v1/admin/simulation`,
+        start: `${baseUrl}/api/v1/admin/simulation/start`,
+        stop: `${baseUrl}/api/v1/admin/simulation/stop`,
+        log: `${baseUrl}/api/v1/admin/simulation/log`,
+        reset: `${baseUrl}/api/v1/admin/reset`,
+      },
+      scenarios: {
+        note: 'Scenarios inject data-level anomalies that are invisible in API responses. Detecting them is part of the hackathon challenge.',
+        catalog: `${baseUrl}/api/v1/admin/simulation/scenarios`,
+        active: `${baseUrl}/api/v1/admin/simulation/scenarios/active`,
+        activate: `${baseUrl}/api/v1/admin/simulation/scenarios/activate`,
+      },
+      stats,
+      coreEntities: {
+        products: { endpoint: `${baseUrl}/api/v1/products`, count: stats.products },
+        skus: { endpoint: `${baseUrl}/api/v1/skus`, count: stats.skus },
+        locations: { endpoint: `${baseUrl}/api/v1/admin/seed-info`, count: stats.locations },
+        suppliers: { endpoint: `${baseUrl}/api/v1/stakeholders/suppliers`, count: stats.suppliers },
+        purchaseOrders: { endpoint: `${baseUrl}/api/v1/purchase-orders`, count: stats.purchaseOrders },
+        salesOrders: { endpoint: `${baseUrl}/api/v1/sales-orders`, count: stats.salesOrders },
+        stockLevels: { endpoint: `${baseUrl}/api/v1/inventory/levels`, count: stats.stockLevels },
+        stockMovements: { endpoint: `${baseUrl}/api/v1/inventory/movements` },
+        matches: { endpoint: `${baseUrl}/api/v1/matching/proposals`, count: stats.sopoMatches },
+      },
+      externalSystems: {
+        directory: `${baseUrl}/external`,
+        sfcc: `${baseUrl}/external/sfcc/shop/v24_5/organizations/acne-studios`,
+        teamwork: `${baseUrl}/external/teamwork/api/v2`,
+        blueYonder: `${baseUrl}/external/blue-yonder/api/v1`,
+        nedap: `${baseUrl}/external/nedap/api/v2`,
+        nuorder: `${baseUrl}/external/nuorder/api/v1`,
+        centric: `${baseUrl}/external/centric/rest/v2`,
+        medius: `${baseUrl}/external/medius/api/v1`,
+        temera: `${baseUrl}/external/temera/api/v1`,
+        d365: `${baseUrl}/external/d365/data`,
+        adyen: `${baseUrl}/external/adyen/v71`,
+        klarna: `${baseUrl}/external/klarna/payments/v1`,
+      },
+      conventions: {
+        inMemory: 'All data is in-memory. POST /api/v1/admin/reset restores seed state.',
+        simulatedTime: 'simClock advances independently when simulation is running — use it for time-sensitive analysis.',
+        crossSystemChains: 'Events cascade across systems with realistic delays (payment → OMS → WMS → carrier → RFID → DPP).',
+        hiddenScenarios: 'Scenarios generate data-level anomalies with no marker fields — detection requires statistical analysis.',
+        seasonalDemand: 'Products are weighted by current season (outerwear in AW, t-shirts in SS).',
+        sizeDistribution: 'Orders follow a realistic size bell curve (M=30%, L=25%, S=20%).',
+        localCurrency: 'Ecom and POS prices are converted to customer\'s local currency.',
+      },
+    };
+    return reply.send(ctx);
+  });
+
   return fastify;
 }
 

@@ -1,0 +1,30 @@
+[Unit]
+Description=Acne Studios IMS Mock API
+After=network.target
+
+[Service]
+Type=simple
+User=localuser
+WorkingDirectory=/home/localuser/Acne/acne-mock-api
+Environment="NODE_ENV=production"
+Environment="PORT=3000"
+Environment="HOST=127.0.0.1"
+ExecStart=/home/localuser/.nvm/versions/node/v22.22.0/bin/node /home/localuser/.nvm/versions/node/v22.22.0/bin/npx tsx src/index.ts
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=acne-ims
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/localuser/Acne/acne-mock-api
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
