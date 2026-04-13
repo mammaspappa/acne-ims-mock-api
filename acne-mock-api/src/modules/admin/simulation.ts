@@ -702,7 +702,7 @@ function genEcomOrder(): SimEvent {
       id: generateId(), salesOrderId: soId, skuId: sku.id, quantityOrdered: qty,
       quantityAllocated: 0, quantityShipped: 0, quantityReturned: 0,
       unitPrice: localPrice, discountPercent: 0, lineTotal,
-      notes: null, createdAt: now().toISOString(), updatedAt: now().toISOString(),
+      notes: null, createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
     });
   }
 
@@ -713,9 +713,9 @@ function genEcomOrder(): SimEvent {
     currency: currency as any,
     subtotal: Math.round(subtotal), taxAmount: Math.round(subtotal * (countryTaxRate[country] ?? 0.20)), discountAmount: 0, totalAmount: Math.round(subtotal * (1 + (countryTaxRate[country] ?? 0.20))),
     shippingAddress: faker.location.streetAddress(), shippingCity: customer.city, shippingCountry: customer.country,
-    requestedShipDate: now().toISOString(), actualShipDate: null, deliveredAt: null,
-    notes: `[SIM] Online order from ${customer.city}, ${customer.country}`, priority: 0,
-    createdById: ecomUser.id, createdAt: now().toISOString(), updatedAt: now().toISOString(),
+    requestedShipDate: simClock.toISOString(), actualShipDate: null, deliveredAt: null,
+    notes: `Online order from ${customer.city}, ${customer.country}`, priority: 0,
+    createdById: ecomUser.id, createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
   };
   store.salesOrders.push(so);
   store.soLines.push(...soLines);

@@ -56,6 +56,13 @@ interface ActiveScenarioInternal extends ActiveScenarioInfo {
 
 const activeScenarios: ActiveScenarioInternal[] = [];
 
+// Current sim clock — set by processScenarioTick on each call.
+// Scenarios use this instead of now() so events get historical timestamps.
+let scenarioClock: Date = new Date();
+function scenarioNow(): string {
+  return scenarioClock.toISOString();
+}
+
 // ═══════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════
@@ -75,7 +82,7 @@ function sEvt(
 ): SimEvent {
   return {
     id: generateId(),
-    timestamp: now().toISOString(),
+    timestamp: scenarioNow(),
     system,
     type,
     summary,
@@ -112,7 +119,7 @@ function createScenarioOrder(sku: { id: string; retailPrice: number; productId: 
     id: generateId(), salesOrderId: soId, skuId: sku.id,
     quantityOrdered: qty, quantityAllocated: 0, quantityShipped: 0, quantityReturned: 0,
     unitPrice, discountPercent: discount, lineTotal,
-    notes: null, createdAt: now().toISOString(), updatedAt: now().toISOString(),
+    notes: null, createdAt: scenarioNow(), updatedAt: scenarioNow(),
   };
   const so: SalesOrder = {
     id: soId, soNumber, channel: 'ECOMMERCE', type: 'STANDARD', status: 'CONFIRMED',
@@ -124,9 +131,9 @@ function createScenarioOrder(sku: { id: string; retailPrice: number; productId: 
     totalAmount: Math.round(lineTotal * 1.25),
     shippingAddress: faker.location.streetAddress(), shippingCity: faker.location.city(),
     shippingCountry: market,
-    requestedShipDate: now().toISOString(), actualShipDate: null, deliveredAt: null,
+    requestedShipDate: scenarioNow(), actualShipDate: null, deliveredAt: null,
     notes: `Online order from ${market}`, priority: 0,
-    createdById: ecomUser.id, createdAt: now().toISOString(), updatedAt: now().toISOString(),
+    createdById: ecomUser.id, createdAt: scenarioNow(), updatedAt: scenarioNow(),
   };
   store.salesOrders.push(so);
   store.soLines.push(soLine);
@@ -456,6 +463,8 @@ function toInfo(s: ActiveScenarioInternal): ActiveScenarioInfo {
 export function processScenarioTick(simClockIso?: string): SimEvent[] {
   const events: SimEvent[] = [];
   const checkTime = simClockIso ? new Date(simClockIso) : new Date();
+  // Sync scenario clock so all scenario events get historical timestamps
+  scenarioClock = checkTime;
 
   for (const scenario of activeScenarios) {
     if (scenario.status !== 'ACTIVE') continue;
