@@ -285,6 +285,17 @@ Passphrase: \`acne-hackathon-simulate-2026\`
 5. **Sizes and seasons matter** — orders are weighted by a realistic size bell curve and seasonal demand patterns.
 6. **Currency conversion** — ecom and POS prices are converted to local currency based on customer country.
 
+## Brand resources
+
+- \`GET /brand\` — brand overview
+- \`GET /brand/style-guide\` — typography, colors, tone of voice, design principles
+- \`GET /brand/logos\` — logo variants and usage rules
+- \`GET /brand/pricing\` — price tier structure
+- \`GET /brand/stores\` — store directory and presence
+- \`GET /brand/assets/logo-black.svg\` — brand asset files
+
+If you're building a frontend or any visual output, start with \`/brand/style-guide\`.
+
 ## Quick discovery
 
 - \`GET /api/v1/admin/health\` — current data stats (record counts per collection)
@@ -381,6 +392,20 @@ curl ${_request.protocol}://${_request.hostname}/api/v1/inventory/movements?limi
         csvExample: `${baseUrl}/api/v1/export/sales-orders.csv`,
         jsonExample: `${baseUrl}/api/v1/export/sales-orders.json`,
         entities: ['products', 'skus', 'locations', 'suppliers', 'users', 'purchase-orders', 'po-lines', 'po-receipts', 'po-status-history', 'sales-orders', 'so-lines', 'so-status-history', 'shipments', 'stock-levels', 'stock-movements', 'matches', 'matching-runs', 'forecasts', 'recommendations', 'anomalies', 'audit-logs', 'season-drops'],
+      },
+      brand: {
+        note: 'Visual identity, style guide, logos, and design assets. Start here when building a UI.',
+        overview: `${baseUrl}/brand`,
+        styleGuide: `${baseUrl}/brand/style-guide`,
+        logos: `${baseUrl}/brand/logos`,
+        pricing: `${baseUrl}/brand/pricing`,
+        stores: `${baseUrl}/brand/stores`,
+        assets: {
+          logoBlack: `${baseUrl}/brand/assets/logo-black.svg`,
+          logoWhite: `${baseUrl}/brand/assets/logo-white.svg`,
+          wordmark: `${baseUrl}/brand/assets/logo-wordmark-large.svg`,
+          facePatch: `${baseUrl}/brand/assets/face-patch.svg`,
+        },
       },
       externalSystems: {
         directory: `${baseUrl}/external`,
