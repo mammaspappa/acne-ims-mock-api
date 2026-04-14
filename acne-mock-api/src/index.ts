@@ -15,6 +15,7 @@ import { purchaseOrderRoutes } from './modules/purchase-orders/po.routes.js';
 import { inventoryRoutes } from './modules/inventory/inventory.routes.js';
 import { salesOrderRoutes } from './modules/sales-orders/so.routes.js';
 import { stakeholderRoutes } from './modules/stakeholders/stakeholders.routes.js';
+import { customerRoutes } from './modules/stakeholders/customers.routes.js';
 import { webhookRoutes } from './modules/webhooks/webhooks.routes.js';
 import { matchingRoutes } from './modules/matching/matching.routes.js';
 import { aiRoutes } from './modules/ai/ai.routes.js';
@@ -119,6 +120,7 @@ async function buildServer() {
     await api.register(inventoryRoutes);
     await api.register(salesOrderRoutes);
     await api.register(stakeholderRoutes);
+    await api.register(customerRoutes);
     await api.register(webhookRoutes);
     await api.register(matchingRoutes);
     await api.register(aiRoutes);

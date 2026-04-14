@@ -5,7 +5,7 @@ import type {
   StockLevel, StockMovement, AuditLog,
   SOPOMatch, MatchingRun,
   DemandForecast, AIRecommendation, AnomalyAlert, ModelRegistry,
-  SeasonDrop, SeasonCalendarEntry,
+  SeasonDrop, SeasonCalendarEntry, Customer,
 } from './types.js';
 import { seedAll } from './seed/index.js';
 import { resetSequences } from '../utils/number-sequence.js';
@@ -43,6 +43,7 @@ export class Store {
   modelRegistry: ModelRegistry[] = [];
   seasonDrops: SeasonDrop[] = [];
   seasonCalendar: SeasonCalendarEntry[] = [];
+  customers: Customer[] = [];
 
   private _snapshot: string = '';
   private _indexes = new Map<string, Map<string, unknown>>();
@@ -140,6 +141,7 @@ export class Store {
       modelRegistry: this.modelRegistry,
       seasonDrops: this.seasonDrops,
       seasonCalendar: this.seasonCalendar,
+      customers: this.customers,
     };
   }
 
@@ -206,6 +208,7 @@ export class Store {
       aiRecommendations: this.aiRecommendations.length,
       anomalyAlerts: this.anomalyAlerts.length,
       seasonDrops: this.seasonDrops.length,
+      customers: this.customers.length,
     };
   }
 }

@@ -29,6 +29,7 @@ const ENTITIES: Record<string, () => Record<string, unknown>[]> = {
   'anomalies': () => store.anomalyAlerts as any,
   'audit-logs': () => store.auditLogs as any,
   'season-drops': () => store.seasonDrops as any,
+  'customers': () => store.customers as any,
 };
 
 export async function exportRoutes(fastify: FastifyInstance): Promise<void> {

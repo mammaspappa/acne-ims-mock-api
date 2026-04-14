@@ -486,3 +486,31 @@ export interface SeasonCalendarEntry {
   dropDate: string;                  // ISO date when drop should fire
   enabled: boolean;
 }
+
+// ─── CUSTOMER ─────────────────────────────────────────
+
+export type CustomerProfile = 'VIC' | 'REGULAR' | 'BARGAIN_HUNTER' | 'TOURIST' | 'RETURNING';
+export type CustomerTier = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM' | null;
+
+export interface Customer {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  city: string;
+  country: string;
+  countryCode: string;
+  currency: Currency;
+  profile: CustomerProfile;
+  tier: CustomerTier;                // VIP tier (only populated for VIC customers)
+  preferredChannel: SOChannel;
+  preferredCategory: string | null;  // for VICs and regulars
+  firstOrderAt: string;
+  lastOrderAt: string | null;
+  totalOrders: number;
+  totalSpentSek: number;             // cumulative lifetime spend in SEK
+  returnRate: number;                // 0-1, how often this customer returns items
+  createdAt: string;
+  updatedAt: string;
+}

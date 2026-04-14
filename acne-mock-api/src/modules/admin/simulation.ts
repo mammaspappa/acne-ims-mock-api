@@ -8,7 +8,7 @@ export function setStoreRef(s: Store): void { store = s; }
 import { generateId } from '../../utils/id.js';
 import { now } from '../../utils/date.js';
 import { faker } from '@faker-js/faker';
-import type { SalesOrder, SOLine, PurchaseOrder, POLine, POStatus, SOStatus, StockMovement, Shipment, SOStatusHistory, POStatusHistory, POReceipt, AuditLog, DemandForecast, AIRecommendation, AnomalyAlert, SOPOMatch, MatchingRun } from '../../store/types.js';
+import type { SalesOrder, SOLine, PurchaseOrder, POLine, POStatus, SOStatus, StockMovement, Shipment, SOStatusHistory, POStatusHistory, POReceipt, AuditLog, DemandForecast, AIRecommendation, AnomalyAlert, SOPOMatch, MatchingRun, Customer, CustomerProfile } from '../../store/types.js';
 import { nextSequence } from '../../utils/number-sequence.js';
 import { processScenarioTick, clearAllScenarios, activateScenario, SCENARIO_CATALOG, getActiveScenarios } from './scenarios.js';
 import { checkCalendarDrops, loadDefaultCalendar } from './season-drop.js';
@@ -427,6 +427,54 @@ function weightedSku(productId: string): ReturnType<typeof randomSku> {
   return skus[0];
 }
 
+// ─── Customer selection ────────────────────────────
+// Purchase frequency weight per profile — controls how often a customer
+// from that profile is picked for a new order.
+const PROFILE_FREQUENCY: Record<CustomerProfile, number> = {
+  VIC: 18,            // 5% of pop but 18% of orders (they shop often)
+  REGULAR: 6,         // 20% of pop, regular shoppers
+  RETURNING: 3,       // 20% of pop, occasional
+  BARGAIN_HUNTER: 4,  // 15% of pop, moderate frequency
+  TOURIST: 1,         // 40% of pop, rare shoppers
+};
+
+// Pick an existing customer, weighted by profile frequency.
+// Optionally filter by country (for retail store events).
+function pickCustomer(opts?: { country?: string; channel?: SalesOrder['channel'] }): Customer | null {
+  if (store.customers.length === 0) return null;
+
+  let pool = store.customers;
+  if (opts?.country) {
+    pool = pool.filter(c => c.countryCode === opts.country);
+    if (pool.length === 0) pool = store.customers; // fall back
+  }
+  if (opts?.channel) {
+    // 70% chance to match preferred channel
+    if (Math.random() < 0.7) {
+      const matching = pool.filter(c => c.preferredChannel === opts.channel);
+      if (matching.length > 0) pool = matching;
+    }
+  }
+
+  // Weighted pick by profile frequency
+  const weighted = pool.map(c => ({ c, w: PROFILE_FREQUENCY[c.profile] }));
+  const total = weighted.reduce((s, x) => s + x.w, 0);
+  let roll = Math.random() * total;
+  for (const { c, w } of weighted) {
+    roll -= w;
+    if (roll <= 0) return c;
+  }
+  return pool[0];
+}
+
+// Update customer stats after an order
+function updateCustomerStats(customer: Customer, totalSek: number): void {
+  customer.totalOrders++;
+  customer.totalSpentSek += totalSek;
+  customer.lastOrderAt = simClock.toISOString();
+  customer.updatedAt = simClock.toISOString();
+}
+
 // Season-aware product selection — products in the current season sell more
 function seasonalProduct(): ReturnType<typeof randomProduct> {
   const month = simClock.getMonth() + 1; // 1-12
@@ -678,12 +726,48 @@ function createShipment(soId: string, carrier: string, tracking: string): Shipme
 // ═══════════════════════════════════════════════════════
 
 function genEcomOrder(): SimEvent {
-  const country = randomEcomMarket();
-  const currency = countryToCurrency[country] || 'EUR';
-  const customer = { name: faker.person.fullName(), email: faker.internet.email(), city: faker.location.city(), country };
-  const itemCount = 1 + Math.floor(Math.random() * 3);
-  // Pick SKUs from seasonal products with realistic size distribution
-  const selectedProducts = Array.from({ length: itemCount }, () => seasonalProduct());
+  // Pick a persistent customer (profile-weighted), or create a new one 5% of the time
+  let customerRecord = (Math.random() < 0.05) ? null : pickCustomer({ channel: 'ECOMMERCE' });
+  if (!customerRecord) {
+    // New customer discovery — create a TOURIST profile customer
+    const country = randomEcomMarket();
+    const currency = countryToCurrency[country] || 'EUR';
+    const firstName = faker.person.firstName();
+    const lastName = faker.person.lastName();
+    customerRecord = {
+      id: generateId(),
+      email: faker.internet.email({ firstName, lastName }).toLowerCase(),
+      firstName, lastName, fullName: `${firstName} ${lastName}`,
+      city: faker.location.city(),
+      country: country, countryCode: country, currency: currency as any,
+      profile: 'TOURIST', tier: null,
+      preferredChannel: 'ECOMMERCE' as any,
+      preferredCategory: null,
+      firstOrderAt: simClock.toISOString(), lastOrderAt: null,
+      totalOrders: 0, totalSpentSek: 0, returnRate: 0.15,
+      createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
+    };
+    store.customers.push(customerRecord);
+  }
+  const country = customerRecord.countryCode;
+  const currency = customerRecord.currency;
+  const customer = { name: customerRecord.fullName, email: customerRecord.email, city: customerRecord.city, country };
+
+  // Basket size depends on profile — VICs buy more, tourists buy less
+  const basketSizes: Record<CustomerProfile, [number, number]> = {
+    VIC: [2, 5], REGULAR: [1, 3], RETURNING: [1, 3], BARGAIN_HUNTER: [1, 2], TOURIST: [1, 2],
+  };
+  const [minItems, maxItems] = basketSizes[customerRecord.profile];
+  const itemCount = minItems + Math.floor(Math.random() * (maxItems - minItems + 1));
+
+  // VICs and regulars lean toward their preferred category
+  const selectedProducts = Array.from({ length: itemCount }, () => {
+    if (customerRecord!.preferredCategory && Math.random() < 0.6) {
+      const catProducts = store.products.filter(p => p.category === customerRecord!.preferredCategory);
+      if (catProducts.length > 0) return catProducts[Math.floor(Math.random() * catProducts.length)];
+    }
+    return seasonalProduct();
+  });
   const skus = selectedProducts.map(p => weightedSku(p.id));
   const ecomUser = store.users.find(u => u.role === 'ECOM')!;
 
@@ -693,34 +777,43 @@ function genEcomOrder(): SimEvent {
   const soNumber = `SO-EC-SIM-${String(state.eventsGenerated + 1).padStart(5, '0')}`;
   const fxRate = sekToLocal[currency] || 0.095;
 
+  // Profile-driven discount: bargain hunters get 15% sale prices, VICs pay full
+  const profileDiscount = customerRecord.profile === 'BARGAIN_HUNTER' ? 15 : 0;
+
   for (const sku of skus) {
     const qty = 1 + Math.floor(Math.random() * 2);
-    const localPrice = Math.round(sku.retailPrice * fxRate);
+    const localPrice = Math.round(sku.retailPrice * fxRate * (1 - profileDiscount / 100));
     const lineTotal = qty * localPrice;
     subtotal += lineTotal;
     soLines.push({
       id: generateId(), salesOrderId: soId, skuId: sku.id, quantityOrdered: qty,
       quantityAllocated: 0, quantityShipped: 0, quantityReturned: 0,
-      unitPrice: localPrice, discountPercent: 0, lineTotal,
+      unitPrice: localPrice, discountPercent: profileDiscount, lineTotal,
       notes: null, createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
     });
   }
 
+  // VICs get higher priority
+  const priority = customerRecord.profile === 'VIC' ? 2 : customerRecord.tier === 'GOLD' || customerRecord.tier === 'PLATINUM' ? 1 : 0;
+
   const so: SalesOrder = {
     id: soId, soNumber, channel: 'ECOMMERCE', type: 'STANDARD', status: 'CONFIRMED',
-    locationId: store.locations[0].id, customerId: generateId(),
+    locationId: store.locations[0].id, customerId: customerRecord.id,
     customerName: customer.name, customerEmail: customer.email, wholesaleBuyerId: null,
     currency: currency as any,
     subtotal: Math.round(subtotal), taxAmount: Math.round(subtotal * (countryTaxRate[country] ?? 0.20)), discountAmount: 0, totalAmount: Math.round(subtotal * (1 + (countryTaxRate[country] ?? 0.20))),
     shippingAddress: faker.location.streetAddress(), shippingCity: customer.city, shippingCountry: customer.country,
     requestedShipDate: simClock.toISOString(), actualShipDate: null, deliveredAt: null,
-    notes: `Online order from ${customer.city}, ${customer.country}`, priority: 0,
+    notes: `Online order from ${customer.city}, ${customer.country}`, priority,
     createdById: ecomUser.id, createdAt: simClock.toISOString(), updatedAt: simClock.toISOString(),
   };
   store.salesOrders.push(so);
   store.soLines.push(...soLines);
   logSOStatusChange(soId, null, 'CONFIRMED', ecomUser.id, 'Online order placed');
   logAudit('CREATE', 'SalesOrder', soId, null, { soNumber, channel: 'ECOMMERCE', status: 'CONFIRMED' });
+
+  // Update customer stats (convert local price to SEK for cumulative total)
+  updateCustomerStats(customerRecord, Math.round(subtotal / fxRate));
 
   const names = skus.map(s => productForSku(s)?.name || '?').join(', ');
   const payMethod = faker.helpers.arrayElement(['visa', 'mastercard', 'amex', 'klarna', 'apple_pay']);
