@@ -17,6 +17,7 @@ ENTITIES=(
   "locations"
   "suppliers"
   "users"
+  "customers"
   "purchase-orders"
   "po-lines"
   "po-receipts"

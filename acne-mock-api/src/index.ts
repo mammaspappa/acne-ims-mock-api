@@ -233,6 +233,7 @@ To test RBAC: \`POST /api/v1/auth/login\` with any seeded user email and passwor
 - \`/api/v1/inventory/movements\` — audit trail of every stock change
 - \`/api/v1/matching\` — intelligent SO↔PO matching engine with scoring
 - \`/api/v1/stakeholders/suppliers\` — 15 real suppliers based on Acne sustainability reports
+- \`/api/v1/stakeholders/customers\` — ~3000 persistent customers with 5 behavior profiles (VIC, REGULAR, RETURNING, BARGAIN_HUNTER, TOURIST). Every sales order is linked via \`customerId\`. Useful for lifetime value analysis, segmentation, churn detection.
 - \`/api/v1/ai/forecasts\`, \`/ai/recommendations\`, \`/ai/anomalies\` — AI-generated intelligence
 - \`/api/v1/reports\` — analytics and KPIs
 
@@ -313,7 +314,7 @@ For offline analysis, every entity can be downloaded as CSV or JSON (unpaginated
 - \`GET /api/v1/export/:entity.csv\` — CSV download (RFC 4180)
 - \`GET /api/v1/export/:entity.json\` — full JSON array
 
-Entities: products, skus, locations, suppliers, users, purchase-orders, po-lines, po-receipts, po-status-history, sales-orders, so-lines, so-status-history, shipments, stock-levels, stock-movements, matches, matching-runs, forecasts, recommendations, anomalies, audit-logs, season-drops
+Entities: products, skus, locations, suppliers, users, customers, purchase-orders, po-lines, po-receipts, po-status-history, sales-orders, so-lines, so-status-history, shipments, stock-levels, stock-movements, matches, matching-runs, forecasts, recommendations, anomalies, audit-logs, season-drops
 
 ## Sample workflow
 
@@ -382,6 +383,13 @@ curl ${_request.protocol}://${_request.hostname}/api/v1/inventory/movements?limi
         skus: { endpoint: `${baseUrl}/api/v1/skus`, count: stats.skus },
         locations: { endpoint: `${baseUrl}/api/v1/admin/seed-info`, count: stats.locations },
         suppliers: { endpoint: `${baseUrl}/api/v1/stakeholders/suppliers`, count: stats.suppliers },
+        customers: {
+          endpoint: `${baseUrl}/api/v1/stakeholders/customers`,
+          statsEndpoint: `${baseUrl}/api/v1/stakeholders/customers/stats`,
+          count: stats.customers,
+          profiles: ['VIC', 'REGULAR', 'RETURNING', 'BARGAIN_HUNTER', 'TOURIST'],
+          note: 'Persistent with behavior profiles and lifetime purchase history.',
+        },
         purchaseOrders: { endpoint: `${baseUrl}/api/v1/purchase-orders`, count: stats.purchaseOrders },
         salesOrders: { endpoint: `${baseUrl}/api/v1/sales-orders`, count: stats.salesOrders },
         stockLevels: { endpoint: `${baseUrl}/api/v1/inventory/levels`, count: stats.stockLevels },
@@ -393,7 +401,7 @@ curl ${_request.protocol}://${_request.hostname}/api/v1/inventory/movements?limi
         list: `${baseUrl}/api/v1/export`,
         csvExample: `${baseUrl}/api/v1/export/sales-orders.csv`,
         jsonExample: `${baseUrl}/api/v1/export/sales-orders.json`,
-        entities: ['products', 'skus', 'locations', 'suppliers', 'users', 'purchase-orders', 'po-lines', 'po-receipts', 'po-status-history', 'sales-orders', 'so-lines', 'so-status-history', 'shipments', 'stock-levels', 'stock-movements', 'matches', 'matching-runs', 'forecasts', 'recommendations', 'anomalies', 'audit-logs', 'season-drops'],
+        entities: ['products', 'skus', 'locations', 'suppliers', 'users', 'customers', 'purchase-orders', 'po-lines', 'po-receipts', 'po-status-history', 'sales-orders', 'so-lines', 'so-status-history', 'shipments', 'stock-levels', 'stock-movements', 'matches', 'matching-runs', 'forecasts', 'recommendations', 'anomalies', 'audit-logs', 'season-drops'],
       },
       brand: {
         note: 'Visual identity, style guide, logos, and design assets. Start here when building a UI.',
@@ -431,6 +439,7 @@ curl ${_request.protocol}://${_request.hostname}/api/v1/inventory/movements?limi
         seasonalDemand: 'Products are weighted by current season (outerwear in AW, t-shirts in SS).',
         sizeDistribution: 'Orders follow a realistic size bell curve (M=30%, L=25%, S=20%).',
         localCurrency: 'Ecom and POS prices are converted to customer\'s local currency.',
+        persistentCustomers: '~3000 customers with 5 behavior profiles. Every order links to customerId. VICs shop 18x more often than tourists with 10x higher AOV.',
       },
     };
     return reply.send(ctx);
